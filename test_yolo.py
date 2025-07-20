@@ -1,5 +1,8 @@
 import torch
 from ultralytics import YOLO
+from PIL import Image
+
+Image.open("test.jpg").show()
 
 # Check and print CUDA availability and version
 print("CUDA available:", torch.cuda.is_available())
@@ -16,7 +19,7 @@ else:
 model = YOLO("yolov8n.pt")  # "n" = nano model
 
 # Run inference on a sample image
-results = model("https://ultralytics.com/images/bus.jpg")
+results = model("C:/Users/elija/OneDrive/Documents/GitHub/SkyPilot/test.jpg")
 
 # Display results
 results[0].show()
