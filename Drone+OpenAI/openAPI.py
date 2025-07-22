@@ -1,240 +1,119 @@
 from openai import OpenAI
 from drone_controller import DroneController
-import json, threading
+import json
 
 dc = DroneController()
-dc.start()
-maxNumCommands = 5
+client = OpenAI()  # set OPENAI_API_KEY in env
 
-client = OpenAI(
-    api_key=""  # <-- Insert your API key here
-)
-
+# ---------------- tool schema ----------------
 tools = [
-    {
-        "name": "go_up",
-        "description": "Drone moves up x centimeters",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "centimeters": {"type": "number"}
-            },
-            "required": ["centimeters"]
-        }
-    },
-    {
-        "name": "go_down",
-        "description": "Drone moves down x centimeters",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "centimeters": {"type": "number"}
-            },
-            "required": ["centimeters"]
-        }
-    },
-    {
-        "name": "go_forward",
-        "description": "Drone moves forward x centimeters",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "centimeters": {"type": "number"}
-            },
-            "required": ["centimeters"]
-        }
-    },
-    {
-        "name": "go_back",
-        "description": "Drone moves backward x centimeters",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "centimeters": {"type": "number"}
-            },
-            "required": ["centimeters"]
-        }
-    },
-    {
-        "name": "land",
-        "description": "Drone initiates landing"
-    },
-    {
-        "name": "takeoff",
-        "description": "Drone initiates takeoff"
-    },
-    {
-        "name": "rotate_clockwise",
-        "description": "Drone rotates clockwise x degrees",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "degrees": {"type": "number"}
-            },
-            "required": ["degrees"]
-        }
-    },
-    {
-        "name": "rotate_counterclockwise",
-        "description": "Drone rotates counterclockwise x degrees",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "degrees": {"type": "number"}
-            },
-            "required": ["degrees"]
-        }
-    },
-    {
-        "name": "follow_target_sequence",
-        "description": "Provide a target description which will allow a vision agent to set a bounding box around a target the drone will then follow",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "target_description": {"type": "string"}
-            },
-            "required": ["target_description"]
-        }
-    },
-    {
-        "name": "start",
-        "description": "Start up the drone and begin streaming "
-    }
+    {"name": "go_up", "description": "Drone moves up x centimeters",
+     "parameters": {"type": "object", "properties": {"centimeters": {"type": "number"}}, "required": ["centimeters"]}},
+    {"name": "go_down", "description": "Drone moves down x centimeters",
+     "parameters": {"type": "object", "properties": {"centimeters": {"type": "number"}}, "required": ["centimeters"]}},
+    {"name": "go_forward", "description": "Drone moves forward x centimeters",
+     "parameters": {"type": "object", "properties": {"centimeters": {"type": "number"}}, "required": ["centimeters"]}},
+    {"name": "go_back", "description": "Drone moves backward x centimeters",
+     "parameters": {"type": "object", "properties": {"centimeters": {"type": "number"}}, "required": ["centimeters"]}},
+    {"name": "go_left", "description": "Drone moves left x centimeters",
+     "parameters": {"type": "object", "properties": {"centimeters": {"type": "number"}}, "required": ["centimeters"]}},
+    {"name": "go_right", "description": "Drone moves right x centimeters",
+     "parameters": {"type": "object", "properties": {"centimeters": {"type": "number"}}, "required": ["centimeters"]}},
+    {"name": "rotate_clockwise", "description": "Rotate clockwise by degrees",
+     "parameters": {"type": "object", "properties": {"degrees": {"type": "number"}}, "required": ["degrees"]}},
+    {"name": "rotate_counterclockwise", "description": "Rotate counter-clockwise by degrees",
+     "parameters": {"type": "object", "properties": {"degrees": {"type": "number"}}, "required": ["degrees"]}},
+    {"name": "flip", "description": "Flip in direction (l,r,f,b)",
+     "parameters": {"type": "object", "properties": {"direction": {"type": "string"}}, "required": ["direction"]}},
+    {"name": "takeoff", "description": "Takeoff the drone"},
+    {"name": "land", "description": "Land the drone normally"},
+    {"name": "emergency_land", "description": "Immediate land, bypassing queue"},
+    {"name": "follow_target_sequence", "description": "Follow a target described in text",
+     "parameters": {"type": "object", "properties": {"description": {"type": "string"}}, "required": ["description"]}},
+    {"name": "stop_follow_sequence", "description": "Stop following the current target"},
+    {"name": "start", "description": "Start controller + video stream"},
+    {"name": "stop", "description": "Stop controller + threads"},
 ]
-def _can_enqueue(cmd):
-    if dc.cmd_gate:
-        print("🚧 Landing in progress; ignoring new commands.")
-        return False
-    with dc.cmd_q.mutex:
-        if dc.cmd_q.qsize() >= maxNumCommands:
-            print("⚠️ Queue full."); return False
-        if dc.cmd_q.queue and dc.cmd_q.queue[-1] == cmd:
-            print("⚠️ Duplicate last command; skipped."); return False
-    return True
 
+# ---------------- command helpers ----------------
+def _mv(cmd):
+    return lambda centimeters: dc.enqueue(f"{cmd} {int(centimeters)}")
 
-def go_up(centimeters):
-    cmd = f"up {centimeters}"
-    if _can_enqueue(cmd):
-        dc.cmd_q.put(cmd)
-        print(f"🛸 Going up {centimeters} cm")
+go_up     = _mv("up")
+go_down   = _mv("down")
+go_left   = _mv("left")
+go_right  = _mv("right")
+go_forward= _mv("forward")
+go_back   = _mv("back")
 
-def go_down(centimeters):
-    cmd = f"down {centimeters}"
-    if _can_enqueue(cmd):
-        dc.cmd_q.put(cmd)
-        print(f"🛸 Going down {centimeters} cm")
+def rotate_clockwise(degrees):        dc.enqueue(f"cw {int(degrees)}")
+def rotate_counterclockwise(degrees): dc.enqueue(f"ccw {int(degrees)}")
+def flip(direction):                  dc.enqueue(f"flip {direction}")
 
-def go_forward(centimeters):
-    cmd = f"forward {centimeters}"
-    if _can_enqueue(cmd):
-        dc.cmd_q.put(cmd)
-        print(f"🛸 Moving forward {centimeters} cm")
+def takeoff():                        dc.takeoff()
+def land():                           dc.land()
+def emergency_land():                 dc.immediate_land()
+def follow_target_sequence(description): dc.start_follow(description)
+def stop_follow_sequence():           dc.stop_follow()
+def start():                          dc.start()
+def stop():                           dc.stop()
 
-def go_back(centimeters):
-    cmd = f"back {centimeters}"
-    if _can_enqueue(cmd):
-        dc.cmd_q.put(cmd)
-        print(f"🛸 Moving backward {centimeters} cm")
+DISPATCH = {
+    "go_up": go_up,
+    "go_down": go_down,
+    "go_forward": go_forward,
+    "go_back": go_back,
+    "go_left": go_left,
+    "go_right": go_right,
+    "rotate_clockwise": rotate_clockwise,
+    "rotate_counterclockwise": rotate_counterclockwise,
+    "flip": flip,
+    "takeoff": takeoff,
+    "land": land,
+    "emergency_land": emergency_land,
+    "follow_target_sequence": follow_target_sequence,
+    "stop_follow_sequence": stop_follow_sequence,
+    "start": start,
+    "stop": stop,
+}
 
-def takeoff():
-    if dc.is_flying:
-        print("⚠️ Already in the air."); return
-    else:
-        dc.cmd_q.put("takeoff")
-        print("🛫 Take-off requested") 
-        dc.cmd_gate = False # reopen pipeline
-
-def land():
-    if not dc.is_flying:
-        print("⚠️ Already landed."); return
-
-    if _can_enqueue("land"):
-        dc.cmd_q.put("land")
-        dc.cmd_gate = True           # close pipeline until next take‑off
-        print("🛬 Landing requested")
-
-def rotate_clockwise(degrees):
-    cmd = f"cw {degrees}"
-    if _can_enqueue(cmd):
-        dc.cmd_q.put(cmd)
-        print(f"🔁 Rotating clockwise {degrees}°")
-
-def rotate_counterclockwise(degrees):
-    cmd = f"ccw {degrees}"
-    if _can_enqueue(cmd):
-        dc.cmd_q.put(cmd)
-        print(f"🔁 Rotating counterclockwise {degrees}°")
-
-def follow_target_sequence(target_description):
-    if not dc.is_flying:
-        print("⚠️ Cannot follow target, drone is not flying.")
-        return
-    dc.follow(target_description)
-
-def stop_follow_sequence():
-    dc.stop_follow()
-
-def start_drone():
-    dc.start()
-
-    
 def call_function(name, args=None):
-    if name == "go_up":
-        return go_up(**args)
-    elif name == "go_down":
-        return go_down(**args)
-    elif name == "go_forward":
-        return go_forward(**args)
-    elif name == "go_back":
-        return go_back(**args)
-    elif name == "takeoff":
-        return takeoff()
-    elif name == "land":
-        return land()
-    elif name == "rotate_clockwise":
-        return rotate_clockwise(**args)
-    elif name == "rotate_counterclockwise":
-        return rotate_counterclockwise(**args)
-    elif name == "follow_target_sequence":
-        return follow_target_sequence(**args)
-    elif name == "start":
-        return start_drone(**args)
-    else:
+    func = DISPATCH.get(name)
+    if not func:
         print(f"⚠️ Unknown function call: {name}")
+        return
+    if args is None:
+        return func()
+    return func(**args)
 
-def promptgpt(inp):
+# ---------------- GPT loop ----------------
+def promptgpt(inp: str):
     response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[
-            {"role": "system", "content": "You are a drone copilot that maps user input to drone movement functions. Every command you send is sent into a queue."},
-            {"role": "user", "content": inp}
-        ],
-        tools=[{"type": "function", "function": tool} for tool in tools],
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": inp}],
+        tools=[{"type": "function", "function": t} for t in tools],
         tool_choice="auto"
     )
-
     msg = response.choices[0].message
 
     if msg.tool_calls:
-        for tool_call in msg.tool_calls:
-            name = tool_call.function.name
-            args = json.loads(tool_call.function.arguments) if tool_call.function.arguments else None
+        for tc in msg.tool_calls:
+            name = tc.function.name
+            args = json.loads(tc.function.arguments) if tc.function.arguments else None
             call_function(name, args)
     elif msg.content:
-        print("🤖 GPT says:", msg.content)
+        print("🤖", msg.content)
 
-# Main loop
+# ---------------- shell ----------------
 if __name__ == "__main__":
     try:
         while True:
             user_input = input("Prompt> ")
-            if user_input.lower() in ["exit", "quit"]:
-                print("🛬 Exiting... initiating immediate landing.")
+            if user_input.lower() in {"exit", "quit"}:
+                print("🛬 Exiting… immediate landing.")
                 dc.immediate_land()
                 break
             promptgpt(user_input)
     except KeyboardInterrupt:
-        print("\n🛑 KeyboardInterrupt detected. Landing drone...")
+        print("\n🛑 KeyboardInterrupt. Landing…")
         dc.immediate_land()
-
