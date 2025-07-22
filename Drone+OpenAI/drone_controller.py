@@ -4,8 +4,8 @@ from datetime import datetime
 import skytrack
 from collections import deque
 
-#TELLO_ADDR = ("192.168.10.1", 8889)
-TELLO_ADDR = ("127.0.0.1", 8889)
+TELLO_ADDR = ("192.168.10.1", 8889)
+# use this addr for testing with fake_tello:: TELLO_ADDR = ("127.0.0.1", 8889)
 VIDEO_URL  = ("udp://0.0.0.0:11111"
               "?fifo_size=0&overrun_nonfatal=1&fflags=nobuffer&flags=low_delay") 
 
