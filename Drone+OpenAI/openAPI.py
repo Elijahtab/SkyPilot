@@ -1,11 +1,21 @@
+#!/usr/bin/env python3
+# openapi.py
+
+import json
+import threading
+import signal
+import sys
+import time
+import os
+
 from openai import OpenAI
 from drone_controller import DroneController
-import json
 
+# ---- init globals ----
 dc = DroneController()
-client = OpenAI()  # set OPENAI_API_KEY in env
+client = OpenAI()  # needs OPENAI_API_KEY in env
 
-# ---------------- tool schema ----------------
+# ---- tool schema (must match arg names you accept) ----
 tools = [
     {"name": "go_up", "description": "Drone moves up x centimeters",
      "parameters": {"type": "object", "properties": {"centimeters": {"type": "number"}}, "required": ["centimeters"]}},
@@ -27,7 +37,7 @@ tools = [
      "parameters": {"type": "object", "properties": {"direction": {"type": "string"}}, "required": ["direction"]}},
     {"name": "takeoff", "description": "Takeoff the drone"},
     {"name": "land", "description": "Land the drone normally"},
-    {"name": "emergency_land", "description": "Immediate land, bypassing queue"},
+    {"name": "emergency_land", "description": "Immediate safe land (NOT motor kill)"},
     {"name": "follow_target_sequence", "description": "Follow a target described in text",
      "parameters": {"type": "object", "properties": {"description": {"type": "string"}}, "required": ["description"]}},
     {"name": "stop_follow_sequence", "description": "Stop following the current target"},
@@ -35,28 +45,30 @@ tools = [
     {"name": "stop", "description": "Stop controller + threads"},
 ]
 
-# ---------------- command helpers ----------------
+# ---- wrappers (accept **kwargs to avoid TypeError if schema changes) ----
 def _mv(cmd):
-    return lambda centimeters: dc.enqueue(f"{cmd} {int(centimeters)}")
+    def f(centimeters=None, **_):
+        dc.enqueue(f"{cmd} {int(centimeters)}")
+    return f
 
-go_up     = _mv("up")
-go_down   = _mv("down")
-go_left   = _mv("left")
-go_right  = _mv("right")
-go_forward= _mv("forward")
-go_back   = _mv("back")
+go_up      = _mv("up")
+go_down    = _mv("down")
+go_left    = _mv("left")
+go_right   = _mv("right")
+go_forward = _mv("forward")
+go_back    = _mv("back")
 
-def rotate_clockwise(degrees):        dc.enqueue(f"cw {int(degrees)}")
-def rotate_counterclockwise(degrees): dc.enqueue(f"ccw {int(degrees)}")
-def flip(direction):                  dc.enqueue(f"flip {direction}")
+def rotate_clockwise(degrees=None, **_):        dc.enqueue(f"cw {int(degrees)}")
+def rotate_counterclockwise(degrees=None, **_): dc.enqueue(f"ccw {int(degrees)}")
+def flip(direction=None, **_):                  dc.enqueue(f"flip {direction}")
 
-def takeoff():                        dc.takeoff()
-def land():                           dc.land()
-def emergency_land():                 dc.immediate_land()
-def follow_target_sequence(description): dc.start_follow(description)
-def stop_follow_sequence():           dc.stop_follow()
-def start():                          dc.start()
-def stop():                           dc.stop()
+def takeoff(**_):                 dc.takeoff()
+def land(**_):                    dc.land()
+def emergency_land(**_):          dc.immediate_land()          # soft land, not motor kill
+def follow_target_sequence(description=None, **_): dc.start_follow(description or "")
+def stop_follow_sequence(**_):    dc.stop_follow()
+def start(**_):                   dc.start()
+def stop(**_):                    dc.stop()
 
 DISPATCH = {
     "go_up": go_up,
@@ -82,20 +94,17 @@ def call_function(name, args=None):
     if not func:
         print(f"⚠️ Unknown function call: {name}")
         return
-    if args is None:
-        return func()
-    return func(**args)
+    return func(**(args or {}))
 
-# ---------------- GPT loop ----------------
+# ---- GPT wrapper ----
 def promptgpt(inp: str):
-    response = client.chat.completions.create(
+    resp = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": inp}],
         tools=[{"type": "function", "function": t} for t in tools],
         tool_choice="auto"
     )
-    msg = response.choices[0].message
-
+    msg = resp.choices[0].message
     if msg.tool_calls:
         for tc in msg.tool_calls:
             name = tc.function.name
@@ -104,16 +113,42 @@ def promptgpt(inp: str):
     elif msg.content:
         print("🤖", msg.content)
 
-# ---------------- shell ----------------
-if __name__ == "__main__":
-    try:
-        while True:
-            user_input = input("Prompt> ")
-            if user_input.lower() in {"exit", "quit"}:
-                print("🛬 Exiting… immediate landing.")
-                dc.immediate_land()
-                break
+# ---- simple REPL (background thread) ----
+def repl():
+    while True:
+        try:
+            user_input = input("Prompt> ").strip()
+        except EOFError:
+            break
+        if user_input.lower() in {"quit", "exit"}:
+            print("🛬 Exiting… soft land.")
+            dc.immediate_land()
+            dc.stop()
+            return
+        try:
             promptgpt(user_input)
-    except KeyboardInterrupt:
-        print("\n🛑 KeyboardInterrupt. Landing…")
-        dc.immediate_land()
+        except Exception as e:
+            print("REPL error:", e)
+
+# ---- SIGINT (Ctrl‑C) handler on main thread ----
+def sigint_handler(sig, frame):
+    print("\n🛑 SIGINT -> soft land")
+    dc.immediate_land()
+    # allow a moment for 'ok' to arrive
+    time.sleep(0.5)
+    dc.stop()
+    os._exit(130)
+
+# ---- main ----
+if __name__ == "__main__":
+    signal.signal(signal.SIGINT, sigint_handler)
+
+    t = threading.Thread(target=repl, daemon=True, name="repl")
+    t.start()
+    try:
+        # Must be on main thread for macOS OpenCV
+        dc.viewer_mainloop()
+    finally:
+        dc.stop()
+        t.join(timeout=1)
+        sys.exit(0)

@@ -1,83 +1,84 @@
 # skytrack.py
-import cv2, base64, re, json
-from openai import OpenAI
+import cv2
+import time
+import queue
 
-client = OpenAI()  # assumes env var OPENAI_API_KEY set
+def _create_csrt():
+    if hasattr(cv2, "TrackerCSRT_create"):
+        return cv2.TrackerCSRT_create()
+    if hasattr(cv2, "legacy") and hasattr(cv2.legacy, "TrackerCSRT_create"):
+        return cv2.legacy.TrackerCSRT_create()
+    raise RuntimeError("CSRT tracker not available in this OpenCV build.")
 
+def _safe_put(q, val):
+    if q is None:
+        return
+    try:
+        q.put_nowait(val)
+    except queue.Full:
+        pass
 
-def _b64_frame(cap):
-    # skip buffered frames
-    for _ in range(30):
-        cap.grab()
-    ok, frame = cap.retrieve()
-    if not ok:
-        raise RuntimeError("no frame")
-    _, jpg = cv2.imencode('.jpg', frame)
-    b64 = "data:image/jpeg;base64," + base64.b64encode(jpg).decode()
-    return frame, b64
-
-
-def acquire_box(cap, desc):
-    """Ask the model for an initial bbox. Returns dict or None."""
-    frame, b64 = _b64_frame(cap)
-    msgs = [
-        {"role": "system",
-         "content": 'Return ONLY JSON like {"x":int,"y":int,"w":int,"h":int}.'},
-        {"role": "user",
-         "content": [
-             {"type": "text", "text": desc},
-             {"type": "image_url", "image_url": {"url": b64}},
-         ]},
-    ]
-    resp = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=msgs,
-        temperature=0
-    ).choices[0].message.content
-
-    if not resp:
+def acquire_box(cap, desc: str = "", timeout_sec: float = 2.0, out_q=None):
+    """
+    Dummy box acquisition: center 25% of the first good frame.
+    Replace with your LLM-based detector if desired.
+    """
+    t0 = time.time()
+    frame = None
+    while time.time() - t0 < timeout_sec:
+        ok, frm = cap.read()
+        if ok and frm is not None:
+            frame = frm
+            break
+    if frame is None:
+        print("❌ acquire_box: no frame.")
         return None
 
-    # try straight JSON first
-    try:
-        return json.loads(resp.strip())
-    except json.JSONDecodeError:
-        # fallback: find first {...} block without nested braces
-        m = re.search(r"\{[^{}]+\}", resp)
-        if not m:
-            return None
-        return json.loads(m.group(0))
+    h, w = frame.shape[:2]
+    bw, bh = int(w * 0.25), int(h * 0.25)
+    x = (w - bw) // 2
+    y = (h - bh) // 2
+    box = {'x': x, 'y': y, 'w': bw, 'h': bh}
 
+    # push a preview frame (with bbox) to the viewer queue if provided
+    if out_q is not None:
+        vis = frame.copy()
+        cv2.rectangle(vis, (x, y), (x + bw, y + h), (0, 255, 0), 2)
+        _safe_put(out_q, vis)
 
-def track_step(cap, tracker, telemetry_q=None, reconnect_cb=None):
-    """Update tracker, compute %cover + center offset, overlay HUD.
-       Returns (pct, offset) or (None, None) if frame/tracker failed."""
+    return box
+
+def init_tracker(frame, box_dict):
+    tracker = _create_csrt()
+    x, y, w, h = box_dict['x'], box_dict['y'], box_dict['w'], box_dict['h']
+    tracker.init(frame, (x, y, w, h))
+    return tracker
+
+def track_step(cap, tracker, telem_q=None, out_q=None):
+    """
+    Returns (pct, offset). Sends drawn frame to out_q if provided.
+    pct    = % of frame covered by bbox
+    offset = horizontal px offset of bbox center from frame center (+ right)
+    """
     ok, frame = cap.read()
-    if not ok:
-        track_step.fail_cnt = getattr(track_step, "fail_cnt", 0) + 1
-        if track_step.fail_cnt >= 3 and reconnect_cb:
-            print("🔄 Lost video - trying reconnect …")
-            reconnect_cb()
-            track_step.fail_cnt = 0
+    if not ok or frame is None:
         return None, None
 
-    track_step.fail_cnt = 0
-    ok, box = tracker.update(frame)
-    if not ok:
+    ok, bbox = tracker.update(frame)
+    if not ok or bbox is None:
         return None, None
 
-    x, y, w, h = map(int, box)
-    cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+    x, y, w, h = [int(v) for v in bbox]
+    fh, fw = frame.shape[:2]
+    area_pct = 100.0 * (w * h) / (fw * fh)
+    offset_x = (x + w / 2) - (fw / 2)
 
-    pct = (w * h) / (frame.shape[0] * frame.shape[1]) * 100.0
-    off = (x + w // 2) - (frame.shape[1] // 2)
+    _safe_put(telem_q, area_pct)
 
-    cv2.putText(frame, f"{pct:.1f}% cover", (20, 90),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
-    cv2.imshow("Follow", frame)
-    cv2.waitKey(1)
+    if out_q is not None:
+        vis = frame.copy()
+        cv2.rectangle(vis, (x, y), (x + w, y + h), (0, 255, 0), 2)
+        cv2.line(vis, (fw // 2, 0), (fw // 2, fh), (255, 0, 0), 1)
+        _safe_put(out_q, vis)
 
-    if telemetry_q:
-        telemetry_q.put(pct)
-
-    return pct, off
+    return area_pct, offset_x
