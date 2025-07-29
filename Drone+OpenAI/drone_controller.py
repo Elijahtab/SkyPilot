@@ -47,6 +47,8 @@ class DroneController:
 
         self.ack_event = threading.Event()
         self.ack_event.set()
+        self.cur_box = None          # latest (x, y, w, h) or None, used to get box from skytrack to drone_controller
+        self.cur_pct = None          # used for pct of screen from skytrack
 
         self._cap_proxy = self._CapProxy(self)
         # battery
@@ -85,7 +87,7 @@ class DroneController:
         if lvl is not None:
             print(f"🔋 Battery: {lvl}%")
         else:
-            print("⚠️ Battery query timeout")
+            print("⚠️ Battery query timeout - check 📶 Wifi and 🪫 Tello Power")
 
         print("🚀 Controller started")
 
@@ -150,9 +152,11 @@ class DroneController:
         except queue.Full:
             print("⚠️ Queue full.")
             return False
+            
 
     def takeoff(self):
         self.enqueue("takeoff")
+        self.enqueue("command")
         print("🛫 Takeoff requested.")
 
     def land(self):
@@ -175,6 +179,11 @@ class DroneController:
         if self.follow_thr and self.follow_thr.is_alive():
             self.follow_thr.join(timeout=2)
         self.follow_thr = None
+
+        # ── clear overlays ─────────────────────────────
+        self.cur_box = None
+        self.cur_pct = None
+
         print("🧱 Follow stopped.")
 
     # ----------------------- internals -----------------------
@@ -273,38 +282,65 @@ class DroneController:
     # ----------------------- follow logic -----------------------
     def _follow_loop(self, desc: str):
         cap = self._cap_proxy
-        out_q = self.frame_q
 
         # wait until we have at least one frame
         while self.latest_frame is None and not self.stop_event.is_set():
             time.sleep(0.01)
 
         try:
-            box = skytrack.acquire_box(cap, desc, out_q=out_q)
-            ok, frame = cap.read()
-            if not box or not ok or frame is None:
-                print("❌ No box/frame; aborting follow.")
-                return
+            # 1) ask for center + shape and get the SAME inference frame
+            frame_inf, result = skytrack.acquire_center_and_shape(cap, desc, return_frame=True)
 
-            tracker = skytrack.init_tracker(frame, box)
+            # 2) build a pixels box from the hybrid result on THAT frame’s size
+            H_inf, W_inf = frame_inf.shape[:2]
+            x, y, w, h = skytrack.box_from_center_shape(result, W_inf, H_inf, area_multiplier=1)
 
+            # 3) debug overlay (optional)
+            dbg = frame_inf.copy()
+            cv2.rectangle(dbg, (x, y), (x + w, y + h), (0, 255, 0), 2)
+            cv2.imwrite("boxed_first_frame.jpg", dbg)
+            self.cur_box = (x, y, w, h)
+
+            # 4) init tracker ON THE SAME FRAME
+            tracker = skytrack.init_tracker(cap, {"x": x, "y": y, "w": w, "h": h}, frame=frame_inf)
+
+            # 4) normal follow loop (unchanged)
+            DESIRED_PCT   = 6.0
+            PCT_TOLERANCE = 2.0
+            OFFSET_TOL    = 20
+            STEP_FB       = 20
+            STEP_YAW      = 10
+            COOLDOWN      = 0.4
+            last_cmd_time = 0.0
+            """
             while not (self.stop_event.is_set() or self.follow_stop.is_set()):
-                try:
-                    pct, offset = skytrack.track_step(
-                        cap, tracker, telem_q=self.telemetry_q, out_q=out_q
-                    )
-                except cv2.error as e:
-                    print(f"OpenCV error in follow loop: {e}")
-                    break
-
+                pct, offset = skytrack.track_step(
+                    cap, tracker, telemetry_q=self.telemetry_q, parent=self
+                )
                 if pct is None:
+                    time.sleep(0.01)
                     continue
 
-                # control logic here if you want
-                time.sleep(0.01)
+                now = time.time()
+                if now - last_cmd_time < COOLDOWN:
+                    time.sleep(0.01)
+                    continue
 
+                if pct < DESIRED_PCT - PCT_TOLERANCE:
+                    self.enqueue(f"forward {STEP_FB}"); last_cmd_time = now
+                elif pct > DESIRED_PCT + PCT_TOLERANCE:
+                    self.enqueue(f"back {STEP_FB}"); last_cmd_time = now
+
+                if offset > OFFSET_TOL:
+                    self.enqueue(f"cw {STEP_YAW}"); last_cmd_time = now
+                elif offset < -OFFSET_TOL:
+                    self.enqueue(f"ccw {STEP_YAW}"); last_cmd_time = now
+
+                time.sleep(0.01)
+                """
         finally:
-            pass  # nothing to release
+            pass
+
 
     class _CapProxy:
         """cv2.VideoCapture.read()-like shim using latest_frame."""
@@ -347,6 +383,20 @@ class DroneController:
                     time.sleep(0.01)
                     continue
                 self.latest_frame = frm
+                if self.cur_box is not None:
+                    x, y, w, h = self.cur_box     
+                    cv2.rectangle(frm, (x, y), (x + w, y + h),
+                                (0, 255, 0), 2)
+                    if self.cur_pct is not None:
+                        text = f"{self.cur_pct:4.1f}%"
+                        # Place the text 10 px above the box (or clamp at top of frame)
+                        ty = max(20, y - 10)
+                        cv2.putText(
+                            frm, text, (x, ty),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6,
+                            (0, 255, 0), 2, cv2.LINE_AA
+                        )
+
                 try:
                     if self.frame_q.full():
                         self.frame_q.get_nowait()
@@ -364,3 +414,4 @@ class DroneController:
             return self.battery_level
         return None
 
+    
