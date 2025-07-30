@@ -180,3 +180,67 @@ def is_person_like_desc(desc: str) -> bool:
         "runner","biker","cyclist","face","torso","body","hoodie","jacket","shirt","pants","dress","coat","hat"
     )
     return any(k in s for k in kws)
+
+
+# ⇢ put these near the bottom of skytrack.py  ────────────────────────────────
+def init_tracker(cap, box: dict, *, frame=None):
+    """
+    Returns an OpenCV CSRT tracker initialised on the *same* frame you pass in.
+    - box = {"x":..,"y":..,"w":..,"h":..}
+    - frame: the exact numpy frame used for init (skip an extra read)
+    """
+    if frame is None:
+        ok, frame = cap.read()
+        if not ok or frame is None:
+            raise RuntimeError("no frame for tracker init")
+
+    if hasattr(cv2, "legacy"):
+        tracker = cv2.legacy.TrackerCSRT_create()
+    else:
+        tracker = cv2.TrackerCSRT_create()
+
+    tracker.init(frame, (box["x"], box["y"], box["w"], box["h"]))
+    return tracker
+
+
+def track_step(cap,
+               tracker,
+               *,
+               reconnect_cb=None,
+               telemetry_q=None,
+               parent=None,
+               max_fail=3):
+    """
+    One iteration of tracking:
+      returns (percent_cover, x_offset)  or  (None, None) on fail.
+    - percent_cover : object area as % of frame
+    - x_offset      : pixels (object centre – frame centre), R+ / L–
+    Will call `reconnect_cb()` after `max_fail` consecutive grab failures.
+    Publishes box & pct to `parent.cur_box` / `parent.cur_pct` for overlays.
+    """
+    ok, frame = cap.read()
+    if not ok or frame is None:
+        track_step._miss = getattr(track_step, "_miss", 0) + 1
+        if track_step._miss >= max_fail and reconnect_cb:
+            reconnect_cb(); track_step._miss = 0
+        return None, None
+    track_step._miss = 0                       # reset on success
+
+    ok, box = tracker.update(frame)
+    if not ok:
+        return None, None                      # tracker lost target
+
+    x, y, w, h = box
+    H, W = frame.shape[:2]
+    pct = (w * h) / (W * H) * 100.0
+    off = (x + w/2.0) - (W/2.0)
+
+    # update overlay holders
+    if parent is not None:
+        parent.cur_box = tuple(map(int, (x, y, w, h)))
+        parent.cur_pct = pct
+    if telemetry_q is not None:
+        telemetry_q.put(pct)
+
+    return pct, off
+# ────────────────────────────────────────────────────────────────────────────
