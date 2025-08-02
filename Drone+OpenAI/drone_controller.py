@@ -2,6 +2,7 @@
 import socket, queue, threading, time, cv2
 from datetime import datetime
 import skytrack
+from functools import partial         
 
 TELLO_ADDR = ("192.168.10.1", 8889)
 # TELLO_ADDR = ("127.0.0.1", 8889)  # for fake_tello tests
@@ -55,6 +56,12 @@ class DroneController:
         self.battery_level = None
         self._batt_event   = threading.Event()
 
+        # ─── RC streaming state ────────────────────────────
+        self._rc_lock   = threading.Lock()
+        self._rc_state  = {"lr": 0, "fb": 0, "ud": 0, "yaw": 0}
+        self._rc_stop   = threading.Event()
+        self._rc_pause  = threading.Event()
+
     # ----------------------- lifecycle -----------------------
 
     def start(self):
@@ -73,6 +80,8 @@ class DroneController:
         self._spawn(self._telemetry_worker, "telemetry")
         self._spawn(self._cmd_worker,       "cmd")
         self._spawn(self._heartbeat,        "heartbeat")
+        self._spawn(lambda: self._rc_pump_loop(hz=50), "rc_pump")
+        self.pause_rc()
 
         # enter SDK + start video
         self._tx(b'command',  track_ack=False); time.sleep(0.3)
@@ -92,6 +101,8 @@ class DroneController:
         print("🚀 Controller started")
 
     def stop(self):
+        skytrack.close_video_logger()
+
         self.stop_event.set()
         self.follow_stop.set()
 
@@ -122,11 +133,15 @@ class DroneController:
 
         with self.state_lock:
             self.running = False
+        #stop rc pump
+        self._rc_stop.set()
 
         print("🛑 Controller stopped.")
 
     def immediate_land(self):
         """Bypass queue and force a land now."""
+        self.set_rc(lr=0, fb=0, ud=0, yaw=0)
+        
         self.stop_event.set()
         self.follow_stop.set()
 
@@ -164,6 +179,9 @@ class DroneController:
         print("🛬 Landing requested.")
 
     def start_follow(self, desc: str):
+        self.resume_rc() 
+        skytrack.open_video_logger("flight_logs", fps=30) 
+
         if self.follow_thr and self.follow_thr.is_alive():
             print("⚠️ Follow already running.")
             return
@@ -175,6 +193,7 @@ class DroneController:
         print("🎯 Follow thread started.")
 
     def stop_follow(self):
+        self.pause_rc()
         self.follow_stop.set()
         if self.follow_thr and self.follow_thr.is_alive():
             self.follow_thr.join(timeout=2)
@@ -183,6 +202,8 @@ class DroneController:
         # ── clear overlays ─────────────────────────────
         self.cur_box = None
         self.cur_pct = None
+        #clear rc
+        self.set_rc(lr=0, fb=0, ud=0, yaw=0)
 
         print("🧱 Follow stopped.")
 
@@ -278,68 +299,144 @@ class DroneController:
         while not self.stop_event.is_set():
             self._tx(b'command', track_ack=False)
             time.sleep(self.HEARTBEAT_SEC)
+    
+    def set_rc(self, *, lr=None, fb=None, ud=None, yaw=None, flush=True):
+        """Update any subset of the four stick axes (−100…100)."""
+        with self._rc_lock:
+            if lr  is not None: self._rc_state["lr"]  = int(max(-100, min(100, lr)))
+            if fb  is not None: self._rc_state["fb"]  = int(max(-100, min(100, fb)))
+            if ud  is not None: self._rc_state["ud"]  = int(max(-100, min(100, ud)))
+            if yaw is not None: self._rc_state["yaw"] = int(max(-100, min(100, yaw)))
+            
+            if flush and not self._rc_pause.is_set():
+                pkt = f"rc {self._rc_state['lr']} {self._rc_state['fb']} " \
+                    f"{self._rc_state['ud']} {self._rc_state['yaw']}"
+                try:
+                    self.sock.sendto(pkt.encode(), self.address)
+                except OSError:
+                    pass
+    # ─────────── pause / resume RC streaming ────────────
+    def pause_rc(self):
+        """Freeze RC output (the last packet stays in effect on the drone)."""
+        self._rc_pause.set()
+
+    def resume_rc(self):
+        """Re-enable continuous RC streaming."""
+        self._rc_pause.clear()
+
+    def _rc_pump_loop(self, hz: int = 20):
+        """
+        Stream an `rc a b c d` packet at `hz` Hz (default 20 Hz ⇒ every 50 ms).
+
+        • Uses self._rc_state  (dict with keys 'lr','fb','ud','yaw')
+        • Pauses if self._rc_pause  is set   (resume with .resume_rc())
+        • Terminates when self.stop_event  or self._rc_stop are set
+        """
+        period = 1.0 / float(hz)
+        last_packet = None
+
+        while not (self.stop_event.is_set() or self._rc_stop.is_set()):
+            # If paused, just wait for one period and continue
+            if self._rc_pause.is_set():
+                time.sleep(period)
+                continue
+
+            # Build the current packet
+            with self._rc_lock:                       # protect shared dict
+                pkt = f"rc {self._rc_state['lr']} {self._rc_state['fb']} " \
+                    f"{self._rc_state['ud']} {self._rc_state['yaw']}"
+
+            # Avoid spamming the console with duplicates
+            if pkt != last_packet:
+                print("→", pkt)
+                last_packet = pkt
+
+            # Send to the drone
+            try:
+                self.sock.sendto(pkt.encode(), self.address)
+            except OSError:
+                pass                                   # ignore socket hiccups
+
+            time.sleep(period)
+
+        # Cleanup (optional): send neutral sticks once on exit
+        try:
+            self.sock.sendto(b"rc 0 0 0 0", self.address)
+        except OSError:
+            pass
+
+        print("🛑 RC pump thread exited.")
+
 
     # ----------------------- follow logic -----------------------
     def _follow_loop(self, desc: str):
         cap = self._cap_proxy
 
-        # wait until we have at least one frame
+        # wait until first frame arrives
         while self.latest_frame is None and not self.stop_event.is_set():
             time.sleep(0.01)
 
+        # 1) one‑shot detection (skytrack decides GPT vs YOLO)
         try:
-            # 1) ask for center + shape and get the SAME inference frame
-            frame_inf, result = skytrack.acquire_center_and_shape(cap, desc, return_frame=True)
+            frame_inf, box = skytrack.acquire_target_box(cap, desc)
+        except Exception as e:
+            print(f"❌ initial detection failed: {e}")
+            return
 
-            # 2) build a pixels box from the hybrid result on THAT frame’s size
-            H_inf, W_inf = frame_inf.shape[:2]
-            x, y, w, h = skytrack.box_from_center_shape(result, W_inf, H_inf, area_multiplier=1)
+        # 2) debug overlay & store
+        x, y, w, h = map(int, (box["x"], box["y"], box["w"], box["h"]))
+        dbg = frame_inf.copy()
+        cv2.rectangle(dbg, (x, y), (x + w, y + h), (0, 255, 0), 2)
+        cv2.imwrite("boxed_first_frame.jpg", dbg)
+        self.cur_box = (x, y, w, h)
 
-            # 3) debug overlay (optional)
-            dbg = frame_inf.copy()
-            cv2.rectangle(dbg, (x, y), (x + w, y + h), (0, 255, 0), 2)
-            cv2.imwrite("boxed_first_frame.jpg", dbg)
-            self.cur_box = (x, y, w, h)
+        # 3) initialise tracker on the SAME frame
+        tracker = skytrack.init_tracker(cap, box, frame=frame_inf)
 
-            # 4) init tracker ON THE SAME FRAME
-            tracker = skytrack.init_tracker(cap, {"x": x, "y": y, "w": w, "h": h}, frame=frame_inf)
+        pct, off = skytrack.track_step(
+                cap, tracker, telemetry_q=self.telemetry_q, parent=self
+            )
+        # 4) rc control
+        DES_PCT, TOL   = pct, pct * .25
+        pixels_per_deg = 11.62
+        Kp             = 0.9    
 
-            # 4) normal follow loop (unchanged)
-            DESIRED_PCT   = 6.0
-            PCT_TOLERANCE = 2.0
-            OFFSET_TOL    = 20
-            STEP_FB       = 20
-            STEP_YAW      = 10
-            COOLDOWN      = 0.4
-            last_cmd_time = 0.0
-            """
-            while not (self.stop_event.is_set() or self.follow_stop.is_set()):
-                pct, offset = skytrack.track_step(
-                    cap, tracker, telemetry_q=self.telemetry_q, parent=self
-                )
-                if pct is None:
-                    time.sleep(0.01)
-                    continue
-
-                now = time.time()
-                if now - last_cmd_time < COOLDOWN:
-                    time.sleep(0.01)
-                    continue
-
-                if pct < DESIRED_PCT - PCT_TOLERANCE:
-                    self.enqueue(f"forward {STEP_FB}"); last_cmd_time = now
-                elif pct > DESIRED_PCT + PCT_TOLERANCE:
-                    self.enqueue(f"back {STEP_FB}"); last_cmd_time = now
-
-                if offset > OFFSET_TOL:
-                    self.enqueue(f"cw {STEP_YAW}"); last_cmd_time = now
-                elif offset < -OFFSET_TOL:
-                    self.enqueue(f"ccw {STEP_YAW}"); last_cmd_time = now
-
+        while not (self.stop_event.is_set() or self.follow_stop.is_set()):
+            pct, off = skytrack.track_step(
+                cap, tracker, telemetry_q=self.telemetry_q, parent=self
+            )
+            if pct is None:
                 time.sleep(0.01)
-                """
-        finally:
-            pass
+                continue
+            
+            deg_error = off / pixels_per_deg
+            
+            # yaw
+            cmd_degrees = int(Kp * deg_error) # round to an int Tello accepts
+            cmd_degrees = max(-30, min(30, cmd_degrees))  # clamp for safety
+
+            if abs(cmd_degrees) >= 5:
+                yaw_rate = int(max(-100, min(100, cmd_degrees * 3)))  # scale as you like
+                self.set_rc(yaw=yaw_rate)
+            else:
+                self.set_rc(yaw=0)
+            
+            FB_RATE  = 40
+
+            # ───────── forward / back via RC stick ─────────
+            if pct < DES_PCT - TOL:            # target too small → move forward
+                self.set_rc(fb=FB_RATE)
+            elif pct > DES_PCT + TOL:          # target too big → move backward
+                self.set_rc(fb=-FB_RATE)
+            else:                              # inside tolerance → hover forward axis
+                self.set_rc(fb=0)
+            
+           
+            time.sleep(0.01)
+        
+
+        self.set_rc(lr=0, fb=0, ud=0, yaw=0)
+        self.cur_box = self.cur_pct = None
 
 
     class _CapProxy:

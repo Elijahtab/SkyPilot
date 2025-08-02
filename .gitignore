@@ -20,3 +20,5 @@ Thumbs.db
 # Ignore logs, data dumps
 *.log
 *.tmp
+
+flight_logs/*.mp4
