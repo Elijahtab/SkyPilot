@@ -62,6 +62,10 @@ class DroneController:
         self._rc_stop   = threading.Event()
         self._rc_pause  = threading.Event()
 
+        self.voice_thr = None
+        self.stop_voice = None
+        self.voice_thr_should_join = False
+
     # ----------------------- lifecycle -----------------------
 
     def start(self):
@@ -100,44 +104,76 @@ class DroneController:
 
         print("🚀 Controller started")
 
-    def stop(self):
+    def stop(self) -> None:
+        """
+        Cleanly shut down all worker threads, stop the video stream immediately,
+        and close sockets / log files.  Safe to call multiple times.
+        """
+        # ── tell helper libs we’re done ──────────────────────────────────────
         skytrack.close_video_logger()
 
+        # ── signal every worker to exit ─────────────────────────────────────
         self.stop_event.set()
         self.follow_stop.set()
+        self._rc_stop.set()             # stop the RC-pump thread early
 
+        # ── stop Tello video & un-block cap.read() right away ───────────────
         try:
-            self._tx(b'streamoff', track_ack=False)
+            self._tx(b"streamoff", track_ack=False)
         except Exception:
             pass
 
-        for t in self._workers:
+        try:                            # release() unblocks video_reader loop
+            if hasattr(self, "_video_cap") and self._video_cap.isOpened():
+                self._video_cap.release()
+        except Exception:
+            pass
+
+        # ── wait for background threads (rx / cmd / rc_pump / video_reader) ─
+        for t in list(self._workers):   # copy, so we can clear safely
             t.join(timeout=2)
         self._workers.clear()
 
+        # ── join follow-tracking thread, if any ─────────────────────────────
         if self.follow_thr and self.follow_thr.is_alive():
             self.follow_thr.join(timeout=2)
         self.follow_thr = None
 
+        # ── close UDP socket ────────────────────────────────────────────────
         try:
             self.sock.close()
         except OSError:
             pass
 
+        # ── flush & close command-log file ──────────────────────────────────
         if self.log_file and not self.log_file.closed:
             try:
                 self.log_file.flush()
                 self.log_file.close()
             except Exception:
                 pass
-
+        if self.stop_voice:
+            self.stop_voice()  # signal the thread to exit
+            self.stop_voice = None  # prevent double-stop
+        if self.voice_thr:
+            self.voice_thr_should_join = True  # mark for later join
+        
+        # ── final state cleanup ─────────────────────────────────────────────
         with self.state_lock:
             self.running = False
-        #stop rc pump
-        self._rc_stop.set()
-
+        
         print("🛑 Controller stopped.")
 
+    def join_threads(self):
+        if self.voice_thr_should_join and self.voice_thr:
+            if threading.current_thread() != self.voice_thr:
+                self.voice_thr.join(timeout=2)
+            self.voice_thr = None
+            self.voice_thr_should_join = False
+    def register_voice_control(self, voice_thread, stop_fn):
+        self.voice_thr = voice_thread
+        self.stop_voice = stop_fn
+        
     def immediate_land(self):
         """Bypass queue and force a land now."""
         self.set_rc(lr=0, fb=0, ud=0, yaw=0)
@@ -469,7 +505,8 @@ class DroneController:
             cv2.destroyAllWindows()
 
     def _video_reader_loop(self):
-        cap = cv2.VideoCapture(self.video_src, cv2.CAP_FFMPEG)
+        self._video_cap = cv2.VideoCapture(self.video_src, cv2.CAP_FFMPEG)
+        cap             = self._video_cap      # local alias
         if not cap.isOpened():
             print("❌ Could not open video stream.")
             return

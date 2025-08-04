@@ -11,6 +11,8 @@ import os
 from openai import OpenAI
 from drone_controller import DroneController
 
+from voice_transcriber import start_transcriber  
+
 # ---- init globals ----
 dc = DroneController()
 client = OpenAI()  # needs OPENAI_API_KEY in env
@@ -136,12 +138,17 @@ def sigint_handler(sig, frame):
     dc.immediate_land()
     # allow a moment for 'ok' to arrive
     time.sleep(0.5)
+    stop_voice()
     dc.stop()
+    dc.join_threads()
     os._exit(130)
 
 # ---- main ----
 if __name__ == "__main__":
     signal.signal(signal.SIGINT, sigint_handler)
+
+    voice_thr, stop_voice = start_transcriber(promptgpt) 
+    dc.register_voice_control(voice_thr, stop_voice)
 
     t = threading.Thread(target=repl, daemon=True, name="repl")
     t.start()
@@ -149,6 +156,9 @@ if __name__ == "__main__":
         # Must be on main thread for macOS OpenCV
         dc.viewer_mainloop()
     finally:
+        dc.immediate_land()
+        stop_voice()
         dc.stop()
+        dc.join_threads()
         t.join(timeout=1)
         sys.exit(0)
