@@ -147,7 +147,12 @@ def sigint_handler(sig, frame):
 if __name__ == "__main__":
     signal.signal(signal.SIGINT, sigint_handler)
 
-    voice_thr, stop_voice = start_transcriber(promptgpt) 
+    voice_thr, stop_voice = start_transcriber(
+        promptgpt,
+        frame_ms=20,        # smaller frames -> faster EOS
+        silence_ms=300,     # less silence before we finalize
+        vad_aggressiveness=2  # 0..3 (3 = most aggressive)
+    )
     dc.register_voice_control(voice_thr, stop_voice)
 
     t = threading.Thread(target=repl, daemon=True, name="repl")

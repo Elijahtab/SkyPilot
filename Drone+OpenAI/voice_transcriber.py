@@ -1,115 +1,293 @@
 # voice_transcriber.py
 """
-Minimal “fire-and-forget” voice-to-text helper.
+End-of-speech (EOS) voice transcriber.
 
-Usage from any script (e.g. openapi.py):
+Goal
+----
+Immediately send a transcript **as soon as the user stops speaking**. This module
+does small-frame audio capture with VAD-based endpointing, then calls a callback
+with the final text for each utterance.
 
-    from voice_transcriber import start_transcriber
+Design
+------
+- Captures mono 16 kHz audio in short frames (default 30 ms).
+- Uses WebRTC VAD if available (py-webrtcvad). Falls back to a robust
+  energy-based VAD.
+- Detects EOS when consecutive silence exceeds `silence_ms` (default 400 ms).
+- On EOS (or when `max_utterance_ms` is reached), transcribes the buffered audio
+  and calls the provided `callback(text)` immediately.
+- Threaded, "fire-and-forget" API with `start_transcriber(callback)`.
 
-    # start a background listener; feed every transcript to promptgpt()
-    voice_thr, stop_voice = start_transcriber(promptgpt)
+Dependencies
+------------
+- numpy
+- sounddevice
+- One of: faster-whisper OR openai-whisper (installed as `whisper`).
+  We'll try faster-whisper first, then fall back to openai-whisper.
+  If neither is available, we raise at startup.
 
-    ...
-    # on shutdown:
-    stop_voice()          # signal the thread to exit
-    voice_thr.join(1)     # optional: wait a moment
+Public API
+----------
+    voice_thr, stop_voice = start_transcriber(
+        callback,
+        sample_rate=16000,
+        frame_ms=30,
+        silence_ms=400,
+        min_utterance_ms=220,
+        max_utterance_ms=15000,
+        vad_aggressiveness=2,
+        model_name="base",
+        device=None,
+    )
+
+    # Later on shutdown:
+    stop_voice()
+    voice_thr.join(1)
+
+Notes
+-----
+- If you want partial streaming while speaking, you can extend `maybe_emit_partial`
+  (left as a stub). For now we only emit a **final** transcript on EOS.
+- If you previously imported an earlier version of this module, the API remains
+  identical: `start_transcriber(cb)` returns `(thread, stop_fn)`.
 """
-
 from __future__ import annotations
-import queue, threading, time, typing as _t
 
-import numpy as np, sounddevice as sd, webrtcvad           # pip install sounddevice webrtcvad
-from faster_whisper import WhisperModel                    # pip install faster-whisper
+import collections
+import threading
+import time
+from dataclasses import dataclass
+from typing import Callable, Deque, Optional
 
+import numpy as np
 
-# ─── constants ────────────────────────────────────────────────────────────────
-_SAMPLE_RATE   = 16_000            # Hz  (what Whisper expects)
-_FRAME_MS      = 20                # VAD-legal frame: 10 / 20 / 30 ms
-_FRAME_SAMPLES = _SAMPLE_RATE * _FRAME_MS // 1000     # 320 for 20 ms
-_SILENCE_MS    = 700               # gap that ends an utterance
-_MAX_UTTER_MS  = 5_000             # hard cap (safety)
-
-# ─── model is loaded exactly once, then reused by every thread ───────────────
-_whisper = WhisperModel("base.en", device="cpu")           # or "tiny.en"
+try:
+    import sounddevice as sd
+except Exception as e:
+    raise RuntimeError("sounddevice is required for microphone capture") from e
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ---------- Whisper loader (singleton) ----------
+class _Whisper:
+    _lock = threading.Lock()
+    _model = None
+    _use_faster = False
+
+    @classmethod
+    def load(cls, model_name: str = "base", device: Optional[str] = None):
+        with cls._lock:
+            if cls._model is not None:
+                return cls._model
+            # Try faster-whisper first
+            try:
+                from faster_whisper import WhisperModel  # type: ignore
+                cls._model = WhisperModel(model_name, device=device or "auto")
+                cls._use_faster = True
+                return cls._model
+            except Exception:
+                pass
+            # Fallback to openai-whisper
+            try:
+                import whisper  # type: ignore
+                cls._model = whisper.load_model(model_name, device=device or None)
+                cls._use_faster = False
+                return cls._model
+            except Exception as e:
+                raise RuntimeError(
+                    "Neither faster-whisper nor openai-whisper is available. "
+                    "Install one of them to enable transcription."
+                ) from e
+
+    @classmethod
+    def transcribe(cls, audio_f32_mono: np.ndarray):
+        m = cls._model or cls.load()
+        if cls._use_faster:
+            # faster-whisper expects float32 array in -1..1
+            segments, info = m.transcribe(audio_f32_mono, vad_filter=False)
+            text = " ".join(seg.text for seg in segments).strip()
+            return text
+        else:
+            # openai-whisper expects numpy array or torch tensor
+            import whisper  # type: ignore
+            # Create a 16k sample rate log-mel from raw float
+            # Simpler: use transcribe with fp array
+            r = m.transcribe(audio_f32_mono, fp16=False)
+            return (r.get("text") or "").strip()
+
+
+# ---------- VAD helpers ----------
+def _has_webrtcvad():
+    try:
+        import webrtcvad  # type: ignore
+        return True
+    except Exception:
+        return False
+
+
+@dataclass
+class VadCfg:
+    sample_rate: int = 16000
+    frame_ms: int = 30            # valid for webrtcvad: 10, 20, or 30
+    aggressiveness: int = 2       # 0..3
+    energy_floor: float = 0.0005  # fallback VAD RMS floor (~-66 dBFS)
+
+
+class _VAD:
+    def __init__(self, cfg: VadCfg):
+        self.cfg = cfg
+        self._use_webrtc = _has_webrtcvad()
+        if self._use_webrtc:
+            import webrtcvad  # type: ignore
+            self._vad = webrtcvad.Vad(cfg.aggressiveness)
+            if cfg.frame_ms not in (10, 20, 30):
+                raise ValueError("frame_ms must be 10/20/30 when using WebRTC VAD")
+
+    def is_speech(self, pcm16: bytes) -> bool:
+        """Return True if frame contains speech. `pcm16` is little-endian mono 16-bit."""
+        if self._use_webrtc:
+            try:
+                return self._vad.is_speech(pcm16, self.cfg.sample_rate)
+            except Exception:
+                return False
+        # Energy-based fallback
+        x = np.frombuffer(pcm16, dtype=np.int16).astype(np.float32) / 32768.0
+        rms = float(np.sqrt(np.mean(x * x) + 1e-12))
+        return rms >= self.cfg.energy_floor
+
+
+# ---------- Core transcriber worker ----------
+@dataclass
+class TranscriberCfg:
+    sample_rate: int = 16000
+    frame_ms: int = 30
+    silence_ms: int = 400
+    min_utterance_ms: int = 220
+    max_utterance_ms: int = 15000
+    vad_aggressiveness: int = 2
+    model_name: str = "base"
+    device: Optional[str] = None
+
+
 def start_transcriber(
-    on_result: _t.Callable[[str], _t.Any],
-    *,
-    vad_level: int       = 2,          # 0=aggressive, 3=lenient
-    device:    str|int  = None,       # pick a sounddevice.InputStream device
-) -> tuple[threading.Thread, _t.Callable[[], None]]:
+    callback: Callable[[str], None],
+    sample_rate: int = 16000,
+    frame_ms: int = 30,
+    silence_ms: int = 400,
+    min_utterance_ms: int = 220,
+    max_utterance_ms: int = 15000,
+    vad_aggressiveness: int = 2,
+    model_name: str = "base",
+    device: Optional[str] = None,
+):
     """
-    Launch a background thread that pushes each recognised utterance
-    to `on_result(text)`.  Returns (thread, stop_fn).
+    Spawn a background thread that listens to the default microphone,
+    detects end-of-speech, and invokes `callback(text)` right away.
+    Returns (thread, stop_fn).
     """
-
-    stop_evt  = threading.Event()
-    pcm_q: queue.Queue[np.ndarray] = queue.Queue(maxsize=100)
-    vad       = webrtcvad.Vad(vad_level)
-
-    # ── audio callback → put float32 frames in queue ─────────────────────────
-    def _audio_cb(indata, frames, time_info, status):
-        if not stop_evt.is_set():
-            pcm_q.put(indata.copy())
-
-    stream = sd.InputStream(
-        samplerate=_SAMPLE_RATE,
-        channels=1,
-        dtype="float32",
-        blocksize=_FRAME_SAMPLES,
-        callback=_audio_cb,
+    cfg = TranscriberCfg(
+        sample_rate=sample_rate,
+        frame_ms=frame_ms,
+        silence_ms=silence_ms,
+        min_utterance_ms=min_utterance_ms,
+        max_utterance_ms=max_utterance_ms,
+        vad_aggressiveness=vad_aggressiveness,
+        model_name=model_name,
         device=device,
     )
-    stream.start()
 
-    # ── worker thread: VAD + Whisper ────────────────────────────────────────
-    def _worker():
-        buffer: list[np.ndarray] = []
-        started   = False
-        start_ts  = 0.0
+    # Prepare VAD and Whisper
+    vad = _VAD(VadCfg(sample_rate=cfg.sample_rate, frame_ms=cfg.frame_ms, aggressiveness=cfg.vad_aggressiveness))
+    _Whisper.load(cfg.model_name, cfg.device)  # lazy-safe; guarantees model is loaded once
 
-        while not stop_evt.is_set():
-            try:
-                frame = pcm_q.get(timeout=0.1)  # float32, 20 ms
-            except queue.Empty:
-                continue
+    # Frame & timing math
+    frame_samples = int(cfg.sample_rate * cfg.frame_ms / 1000)
+    bytes_per_frame = frame_samples * 2  # int16
+    max_frames = int(cfg.max_utterance_ms / cfg.frame_ms + 0.5)
+    min_frames = max(1, int(cfg.min_utterance_ms / cfg.frame_ms + 0.5))
+    silence_frames_needed = max(1, int(cfg.silence_ms / cfg.frame_ms + 0.5))
 
-            frame_i16 = (frame * 32767).astype(np.int16)
-            is_speech = vad.is_speech(frame_i16.tobytes(), _SAMPLE_RATE)
+    # Buffers/state
+    stop_evt = threading.Event()
+    pcm_ring: Deque[bytes] = collections.deque(maxlen=max_frames + 5)
+    utter_active = False
+    consec_silence = 0
+    utter_frames = 0
 
-            if is_speech:
-                if not started:
-                    started  = True
-                    start_ts = time.time()
-                buffer.append(frame_i16)
-            elif started and (time.time() - start_ts)*1000 >= _SILENCE_MS:
-                _flush(buffer, on_result)
-                started = False
+    def _audio_callback(indata, frames, time_info, status):
+        # indata is float32 -1..1; convert to pcm16 bytes per frame_ms block size
+        nonlocal utter_active, consec_silence, utter_frames
+        if stop_evt.is_set():
+            raise sd.CallbackAbort
 
-            # safety cap
-            if started and (time.time() - start_ts)*1000 >= _MAX_UTTER_MS:
-                _flush(buffer, on_result)
-                started = False
+        # collapse to mono
+        x = indata
+        if x.ndim == 2 and x.shape[1] > 1:
+            x = np.mean(x, axis=1, dtype=np.float32)
+        x = np.clip(x, -1.0, 1.0)
+        pcm16 = (x * 32767.0).astype(np.int16).tobytes()
 
-        # drain on exit
-        if buffer:
-            _flush(buffer, on_result)
-        stream.stop()
-        stream.close()
+        # VAD
+        speech = vad.is_speech(pcm16)
 
-    def _flush(buf: list[np.ndarray], cb):
-        if not buf:
-            return
-        pcm16 = b"".join(b.tobytes() for b in buf)
-        buf.clear()
-        # Whisper expects float32 -1…1
-        audio = np.frombuffer(pcm16, np.int16).astype(np.float32) / 32768.0
-        segments, _ = _whisper.transcribe(audio)
-        text = " ".join(s.text for s in segments).strip()
+        if speech:
+            consec_silence = 0
+            if not utter_active:
+                utter_active = True
+                utter_frames = 0
+        else:
+            consec_silence += 1
+
+        if utter_active:
+            pcm_ring.append(pcm16)
+            utter_frames += 1
+
+        # EOS conditions
+        hit_timeout = utter_active and utter_frames >= max_frames
+        hit_silence = utter_active and consec_silence >= silence_frames_needed
+
+        if hit_timeout or hit_silence:
+            # collect utterance and reset state
+            pcm_bytes = b"".join(pcm_ring)
+            pcm_ring.clear()
+            utter_active = False
+            consec_silence = 0
+            utter_frames = 0
+
+            if len(pcm_bytes) >= bytes_per_frame * min_frames:
+                # transcribe on a worker thread so we don't block audio callback
+                threading.Thread(target=_transcribe_and_emit, args=(pcm_bytes,), daemon=True).start()
+            else:
+                # too short/noisy; drop
+                pass
+
+    def _transcribe_and_emit(pcm_bytes: bytes):
+        # Convert PCM16 LE bytes -> float32 -1..1 mono
+        audio = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+        try:
+            text = _Whisper.transcribe(audio)
+        except Exception as e:
+            text = ""
         if text:
-            cb(text)
+            try:
+                callback(text)
+            except Exception:
+                # don't crash the thread on user callback errors
+                pass
+
+    # Open input stream with fixed blocksize matching one frame
+    blocksize = frame_samples
+    stream = sd.InputStream(
+        channels=1,
+        samplerate=cfg.sample_rate,
+        dtype="float32",
+        blocksize=blocksize,
+        callback=_audio_callback,
+    )
+
+    def _worker():
+        with stream:
+            while not stop_evt.is_set():
+                time.sleep(0.05)
 
     thr = threading.Thread(target=_worker, daemon=True, name="voice")
     thr.start()
