@@ -1,5 +1,5 @@
 # drone_controller.py
-import socket, queue, threading, time, cv2
+import socket, queue, threading, time, cv2, os
 from datetime import datetime
 import skytrack
 from functools import partial         
@@ -65,10 +65,19 @@ class DroneController:
         self.voice_thr = None
         self.stop_voice = None
         self.voice_thr_should_join = False
+        self._stopping   = threading.Event()
+        self._video_cap   = None
+        self._local_writer = None
+        self._local_writer_path = None
+        self._local_size = None
+        self._local_frames = 0
+
 
     # ----------------------- lifecycle -----------------------
 
     def start(self):
+        skytrack.open_video_logger('flight_logs', fps=30)
+
         with self.state_lock:
             if self.running:
                 print("⚠️ Controller already running.")
@@ -105,64 +114,80 @@ class DroneController:
         print("🚀 Controller started")
 
     def stop(self) -> None:
-        """
-        Cleanly shut down all worker threads, stop the video stream immediately,
-        and close sockets / log files.  Safe to call multiple times.
-        """
-        # ── tell helper libs we’re done ──────────────────────────────────────
-        skytrack.close_video_logger()
+        """Clean, idempotent shutdown. Safe to call from any thread."""
+        # Prevent re-entry
+        if self._stopping.is_set():
+            return
+        self._stopping.set()
 
-        # ── signal every worker to exit ─────────────────────────────────────
+        # Signal everyone to stop
         self.stop_event.set()
         self.follow_stop.set()
-        self._rc_stop.set()             # stop the RC-pump thread early
+        self._rc_stop.set()         # stop RC pump early
 
-        # ── stop Tello video & un-block cap.read() right away ───────────────
+        # Wake the viewer (main thread) so viewer_mainloop breaks immediately
+        self._poke_viewer()
+
+        # Best-effort tell Tello to stop the stream (don’t block on ack)
         try:
             self._tx(b"streamoff", track_ack=False)
         except Exception:
             pass
 
-        try:                            # release() unblocks video_reader loop
-            if hasattr(self, "_video_cap") and self._video_cap.isOpened():
-                self._video_cap.release()
-        except Exception:
-            pass
-
-        # ── wait for background threads (rx / cmd / rc_pump / video_reader) ─
-        for t in list(self._workers):   # copy, so we can clear safely
-            t.join(timeout=2)
+        # Just give it a moment to notice stop_event and exit.
+        for t in list(self._workers):
+            try:
+                t.join(timeout=2)
+            except Exception:
+                pass
         self._workers.clear()
 
-        # ── join follow-tracking thread, if any ─────────────────────────────
+        # Follow thread (if any)
         if self.follow_thr and self.follow_thr.is_alive():
-            self.follow_thr.join(timeout=2)
+            try:
+                self.follow_thr.join(timeout=2)
+            except Exception:
+                pass
         self.follow_thr = None
 
-        # ── close UDP socket ────────────────────────────────────────────────
+        # Stop voice (if registered); don’t join here if this thread IS the voice thread
+        if self.stop_voice:
+            try:
+                self.stop_voice()
+            except Exception:
+                pass
+            self.stop_voice = None
+            self.voice_thr_should_join = True
+
+        # Close UDP socket so recvfrom() unblocks
         try:
             self.sock.close()
         except OSError:
             pass
 
-        # ── flush & close command-log file ──────────────────────────────────
+        # Flush command log
         if self.log_file and not self.log_file.closed:
             try:
                 self.log_file.flush()
                 self.log_file.close()
             except Exception:
                 pass
-        if self.stop_voice:
-            self.stop_voice()  # signal the thread to exit
-            self.stop_voice = None  # prevent double-stop
-        if self.voice_thr:
-            self.voice_thr_should_join = True  # mark for later join
-        
-        # ── final state cleanup ─────────────────────────────────────────────
+        self.log_file = None
+
+        # Close the video logger AFTER the reader has exited, so MP4 is finalized
+        try:
+            skytrack.close_video_logger()
+        except Exception:
+            pass
+
         with self.state_lock:
             self.running = False
-        
+
         print("🛑 Controller stopped.")
+
+
+
+
 
     def join_threads(self):
         if self.voice_thr_should_join and self.voice_thr:
@@ -177,10 +202,9 @@ class DroneController:
     def immediate_land(self):
         """Bypass queue and force a land now."""
         self.set_rc(lr=0, fb=0, ud=0, yaw=0)
-        
         self.stop_event.set()
         self.follow_stop.set()
-
+        self._poke_viewer()
         try:
             while True:
                 self.cmd_q.get_nowait()
@@ -429,11 +453,12 @@ class DroneController:
         # 3) initialise tracker on the SAME frame
         tracker = skytrack.init_tracker(cap, box, frame=frame_inf)
 
-        pct, off = skytrack.track_step(
-                cap, tracker, telemetry_q=self.telemetry_q, parent=self
-            )
-        # 4) rc control
-        DES_PCT, TOL   = pct, pct * .25
+        pct, off = skytrack.track_step(cap, tracker, telemetry_q=self.telemetry_q, parent=self)
+        if pct is None:
+            print("⚠️ initial track_step returned None; aborting follow")
+            return
+        DES_PCT, TOL = pct, pct * .25
+
         pixels_per_deg = 11.62
         Kp             = 0.9    
 
@@ -485,17 +510,84 @@ class DroneController:
                 return False, None
             return True, f.copy()
 
+    def _poke_viewer(self):
+        # Wake viewer_mainloop if it’s blocked on .get()
+        try:
+            self.frame_q.put_nowait(None)   # None = sentinel
+        except queue.Full:
+            # Replace oldest and insert sentinel
+            try:
+                _ = self.frame_q.get_nowait()
+            except queue.Empty:
+                pass
+            try:
+                self.frame_q.put_nowait(None)
+            except queue.Full:
+                pass
+
+    def _open_local_writer(self, frm):
+        os.makedirs("flight_logs", exist_ok=True)
+        h, w = frm.shape[:2]
+
+        # H.264 likes even dims; MJPG doesn't care, but cropping is harmless.
+        if (w % 2) or (h % 2):
+            frm = frm[:h - (h % 2), :w - (w % 2)]
+            h, w = frm.shape[:2]
+
+        # Allow forcing the container/codec via env var:
+        # SKY_VIDEO_FORCE=avi | mjpg | mp4 | h264 | avc1
+        force = os.getenv("SKY_VIDEO_FORCE", "").lower()
+        if force in ("avi", "mjpg", "mjpeg"):
+            candidates = [(".avi", "MJPG")]
+        elif force in ("mp4", "h264", "avc1"):
+            candidates = [(".mp4", "avc1"), (".mp4", "mp4v")]
+        else:
+            # Prefer AVI/MJPG first for maximum compatibility on macOS builds.
+            candidates = [
+                (".avi", "MJPG"),   # ✅ safest
+                (".mp4", "avc1"),   # H.264 (often not actually available)
+                (".mp4", "mp4v"),   # MPEG-4 Part 2
+            ]
+
+        ts = datetime.now().strftime("tello_%Y%m%d_%H%M%S")
+        fps = 30
+
+        for ext, four in candidates:
+            path = os.path.join("flight_logs", f"{ts}{ext}")
+            fourcc = cv2.VideoWriter_fourcc(*four)
+            wr = cv2.VideoWriter(path, fourcc, fps, (w, h))
+            if wr is not None and wr.isOpened():
+                self._local_writer = wr
+                self._local_writer_path = path
+                self._local_size = (w, h)
+                self._local_frames = 0
+                print(f"🎥 local video logging → {path} [{four}]")
+                return frm
+            try:
+                wr.release()
+            except Exception:
+                pass
+
+        print("⚠️ No working local codec; disabling local video save.")
+        return frm
+
+
+
     def viewer_mainloop(self, window_name="Follow"):
-        """Run this on the MAIN THREAD (macOS OpenCV requirement)."""
         cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
         try:
             while not self.stop_event.is_set():
                 try:
                     frame = self.frame_q.get(timeout=0.05)
                 except queue.Empty:
+                    # still pump GUI so window is responsive
                     if cv2.waitKey(1) & 0xFF == ord('q'):
                         self.stop_event.set()
                     continue
+
+                # ← sentinel means “please exit the viewer”
+                if frame is None:
+                    break
 
                 cv2.imshow(window_name, frame)
                 if cv2.waitKey(1) & 0xFF == ord('q'):
@@ -503,42 +595,109 @@ class DroneController:
                     break
         finally:
             cv2.destroyAllWindows()
+            print("🎥 viewer exited")
+
 
     def _video_reader_loop(self):
-        self._video_cap = cv2.VideoCapture(self.video_src, cv2.CAP_FFMPEG)
-        cap             = self._video_cap      # local alias
-        if not cap.isOpened():
-            print("❌ Could not open video stream.")
-            return
+        cap = cv2.VideoCapture(self.video_src, cv2.CAP_FFMPEG)
+        self._video_cap = cap
         try:
-            while not self.stop_event.is_set():
+            try:
+                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            except Exception:
+                pass
+
+            if not cap.isOpened():
+                print("❌ Could not open video stream.")
+                return
+
+            while True:
+                if self.stop_event.is_set():
+                    break
+
                 ok, frm = cap.read()
+
+                
                 if not ok or frm is None:
                     time.sleep(0.01)
                     continue
+
                 self.latest_frame = frm
+                # init local writer on first good frame
+                if self._local_writer is None:
+                    frm = self._open_local_writer(frm)  # may crop to even dims
+                    # keep latest_frame raw size; if _open_local_writer cropped frm,
+                    # that's only for the writer path
+
+                # ensure size matches writer (some streams can shift)
+                if self._local_size and (frm.shape[1], frm.shape[0]) != self._local_size:
+                    frm = cv2.resize(frm, self._local_size)
+
+                # draw overlays on a COPY so tracker always sees raw latest_frame
+                vis = frm.copy()
                 if self.cur_box is not None:
-                    x, y, w, h = self.cur_box     
-                    cv2.rectangle(frm, (x, y), (x + w, y + h),
-                                (0, 255, 0), 2)
+                    x, y, w, h = self.cur_box
+                    cv2.rectangle(vis, (x, y), (x + w, y + h), (0, 255, 0), 2)
                     if self.cur_pct is not None:
                         text = f"{self.cur_pct:4.1f}%"
-                        # Place the text 10 px above the box (or clamp at top of frame)
                         ty = max(20, y - 10)
-                        cv2.putText(
-                            frm, text, (x, ty),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6,
-                            (0, 255, 0), 2, cv2.LINE_AA
-                        )
+                        cv2.putText(vis, text, (x, ty),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2, cv2.LINE_AA)
 
+                # 1) write the OVERLAYED frame to the global skytrack logger
+                try:
+                    skytrack._save_frame(vis)  # same writer used by follow
+                except Exception:
+                    pass
+
+                # 2) write the OVERLAYED frame to your local file (AVI/MP4)
+                if self._local_writer is not None and self._local_writer.isOpened():
+                    try:
+                        self._local_writer.write(vis)
+                        self._local_frames += 1
+                    except Exception:
+                        pass
+
+                # 3) show the OVERLAYED frame in the viewer
                 try:
                     if self.frame_q.full():
                         self.frame_q.get_nowait()
-                    self.frame_q.put_nowait(frm)
+                    self.frame_q.put_nowait(vis)
                 except queue.Full:
                     pass
         finally:
-            cap.release()
+            try:
+                cap.release()
+            except Exception:
+                pass
+            self._video_cap = None
+
+            # finalize local writer
+            if self._local_writer is not None:
+                try:
+                    self._local_writer.release()
+                except Exception:
+                    pass
+                if self._local_writer_path:
+                    print(f"💾 local video saved → {self._local_writer_path} ({self._local_frames} frames)")
+                self._local_writer = None
+                self._local_writer_path = None
+                self._local_size = None
+                self._local_frames = 0
+
+            print("🎥 video_reader exited")
+
+
+
+
+    def register_voice_control(self, voice_thread, stop_fn):
+        self.voice_thr = voice_thread
+        self.stop_voice = stop_fn
+
+    def schedule_stop(self):
+        # run stop() on its own daemon thread
+        threading.Thread(target=self.stop, name="dc_stop", daemon=True).start()
+
 
     def query_battery(self, timeout=2.0):
         """Send 'battery?' and wait for integer reply."""

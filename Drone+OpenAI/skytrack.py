@@ -192,7 +192,7 @@ def acquire_target_box(cap,
     • If the text description *looks* like a person, try YOLO first.
     • Otherwise use GPT-4o (center+shape).  If GPT fails, fall back to YOLO.
     """
-    open_video_logger("flight_logs", fps=30)
+    #open_video_logger("flight_logs", fps=30)
     global is_person
     is_person = is_person_like_desc(desc)
 
@@ -302,7 +302,7 @@ def track_step(cap,
         return None, None
     track_step._miss = 0  # reset
 
-    _save_frame(frame) # for video logging
+    #_save_frame(frame) # for video logging
 
     # ── choose engine per frame ────────────────────────────────────
     if is_person:

@@ -10,6 +10,8 @@ import os
 
 from openai import OpenAI
 from drone_controller import DroneController
+import faulthandler; faulthandler.enable()
+
 
 from voice_transcriber import start_transcriber  
 
@@ -70,8 +72,8 @@ def emergency_land(**_):          dc.immediate_land()          # soft land, not 
 def follow_target_sequence(description=None, **_): dc.start_follow(description or "")
 def stop_follow_sequence(**_):    dc.stop_follow()
 def start(**_):                   dc.start()
-def stop(**_):                    dc.stop()
-
+def stop(**_):
+    dc.schedule_stop()
 DISPATCH = {
     "go_up": go_up,
     "go_down": go_down,
@@ -136,29 +138,30 @@ def repl():
 def sigint_handler(sig, frame):
     print("\n🛑 SIGINT -> soft land")
     dc.immediate_land()
-    # allow a moment for 'ok' to arrive
-    time.sleep(0.5)
-    stop_voice()
+    try: dc.immediate_land()
+    except Exception: pass
+    try: stop_voice()
+    except Exception: pass
     dc.stop()
-    dc.join_threads()
-    os._exit(130)
+
+def on_mic(text: str):
+    print(f"🎤 {text if text else '(no text)'}")
+    if text:
+        promptgpt(text)
 
 # ---- main ----
 if __name__ == "__main__":
     signal.signal(signal.SIGINT, sigint_handler)
 
-    voice_thr, stop_voice = start_transcriber(promptgpt) 
+    voice_thr, stop_voice = start_transcriber(on_mic, vad_level=1, debug=False)
     dc.register_voice_control(voice_thr, stop_voice)
 
     t = threading.Thread(target=repl, daemon=True, name="repl")
     t.start()
     try:
-        # Must be on main thread for macOS OpenCV
-        dc.viewer_mainloop()
+        dc.viewer_mainloop()   # main thread (OpenCV)
     finally:
-        dc.immediate_land()
-        stop_voice()
-        dc.stop()
-        dc.join_threads()
-        t.join(timeout=1)
-        sys.exit(0)
+        dc.immediate_land()        # optional, if you want a soft land on shutdown
+        dc.schedule_stop()
+        time.sleep(0.2)
+        dc.join_threads()          # this is where the voice thread is joined if needed
