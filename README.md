@@ -43,7 +43,7 @@ It combines **OpenAI's GPT function calling**, **Whisper speech-to-text**, **YOL
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/YOUR-USERNAME/llm-drone.git
+git clone https://github.com/elijahtab/SkyPilot.git
 cd llm-drone
 ```
 
@@ -51,7 +51,7 @@ cd llm-drone
 **Windows:**
 ```bash
 python -m venv myenv
-.\myenv\Scripts\ctivate
+.\myenv\Scripts\activate
 ```
 **macOS/Linux:**
 ```bash
@@ -60,28 +60,23 @@ source myenv/bin/activate
 ```
 
 ### 3. Install Dependencies
-If you have `requirements.txt`:
 ```bash
 pip install -r requirements.txt
 ```
-Or manually:
-```bash
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-pip install ultralytics opencv-python openai pyaudio
-```
+
 
 ---
 
 ## 🚀 Running the Drone System
 
 ### 1. Connect Your Drone
-Ensure your DJI Tello (or compatible drone) is powered on and connected to your machine via WiFi.
+Ensure your DJI Tello (or compatible drone) is powered on and connected to your machine via WiFi. You would need your main chip connected to the Tello Wifi and a hotspot or secondary wifi card connected to an actual wifi source.
 
-### 2. Start Voice Control
+### 2. Start VDrone
 ```bash
-python voice_transcriber.py
+python openapi.py
 ```
-This starts the Whisper-based transcriber and routes recognized commands into the LLM pipeline.
+This starts the pipeline with a Whisper-based transcriber and routes recognized commands into the LLM pipeline.
 
 ### 3. Issue Commands
 Examples:
@@ -97,17 +92,29 @@ Say `"land"` to initiate landing.
 
 ## 📡 How It Works
 
+### Drone + OpenAI Pipeline
 1. **Voice Input**  
    `voice_transcriber.py` uses Whisper to transcribe your speech into text.
 
 2. **LLM Command Parsing**  
-   `openAPI.py` sends the text to an OpenAI agent, which decides whether the command is:
-   - A **discrete action** (sent to `drone_controller.py`)
+   `openAPI.py` sends the text to an OpenAI agent, which decides whether the command is:  
+   - A **discrete action** (sent to `drone_controller.py`)  
    - A **continuous tracking mode** (sent to `skytrack.py`)
 
-3. **Drone Execution**
-   - Discrete commands: altitude changes, rotations, land/takeoff
-   - Continuous tracking: YOLOv8 + OpenCV locks onto the target and maintains smooth pursuit
+3. **Drone Execution**  
+   - **Discrete commands**: altitude changes, rotations, land/takeoff  
+   - **Continuous tracking**: YOLOv8 + OpenCV locks onto the target and maintains smooth pursuit
+
+#### Pipeline Diagram
+![Drone + OpenAI System Flow](assets/drone_diagram.png)
+
+---
+
+### YOLOv8 Inference Workflow
+1. **Test Detection on Sample Image**  
+   ```bash
+   python test_yolo.py
+
 
 ---
 
