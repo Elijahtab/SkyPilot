@@ -44,7 +44,6 @@ It combines **OpenAI's GPT function calling**, **Whisper speech-to-text**, **YOL
 ### 1. Clone the Repository
 ```bash
 git clone https://github.com/elijahtab/SkyPilot.git
-cd llm-drone
 ```
 
 ### 2. Create a Virtual Environment
@@ -72,7 +71,7 @@ pip install -r requirements.txt
 ### 1. Connect Your Drone
 Ensure your DJI Tello (or compatible drone) is powered on and connected to your machine via WiFi. You would need your main chip connected to the Tello Wifi and a hotspot or secondary wifi card connected to an actual wifi source.
 
-### 2. Start VDrone
+### 2. Start The Drone
 ```bash
 python openapi.py
 ```
