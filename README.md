@@ -128,7 +128,9 @@ Say `"land"` to initiate landing.
 ---
 
 ## 📹 Demo Video
-[![Watch the Demo](assets/drone-demo.png)](https://www.youtube.com/watch?v=iRPw58BgnR8)
+<a href="https://www.youtube.com/watch?v=iRPw58BgnR8">
+  <img src="assets/drone-demo.png" alt="Watch the Demo" width="400">
+</a>
 
 ---
 
