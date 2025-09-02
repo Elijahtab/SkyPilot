@@ -128,7 +128,7 @@ Say `"land"` to initiate landing.
 ---
 
 ## 📹 Demo Video
-[![Watch the Demo]()](https://www.youtube.com/watch?v=iRPw58BgnR8)
+[![Watch the Demo](assets/drone-demo.png)](https://www.youtube.com/watch?v=iRPw58BgnR8)
 
 ---
 
@@ -136,10 +136,5 @@ Say `"land"` to initiate landing.
 - Integrate GPS and onboard sensors for outdoor and large-area tracking
 - Expand follow mode to multiple object classes
 - Enhance voice pipeline with custom hotword detection
-
----
-
-## 🔗 Links
-- **GitHub Repo:** [YOUR REPO LINK](https://github.com/Elijahtab/SkyPilot)
 
 ---
