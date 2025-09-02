@@ -1,60 +1,138 @@
-Drone Vehicle Detection with YOLOv8
+# Agentic LLM Autonomous Drone
 
-This project uses a PyTorch-based YOLOv8 model to detect and classify different types of vehicles (cars, trucks, etc.) from drone footage.
+This project implements an **LLM-powered, voice-controlled drone system** capable of executing both discrete flight commands and continuous real-time object tracking.  
+It combines **OpenAI's GPT function calling**, **Whisper speech-to-text**, **YOLOv8 + OpenCV** vision, and **multi-threaded flight control** to deliver a fully conversational drone experience.
 
-Project Features
-- Real-time object detection using YOLOv8
-- Based on PyTorch
+---
 
-Setup Instructions
+## ✨ Features
 
-1.Clone the Repository
+- **Conversational Voice Control** — Issue natural language commands like:
+  - `"take off"`
+  - `"turn around 180 degrees"`
+  - `"follow the man in the gray shirt"`
+- **Agentic LLM Decision-Making** — OpenAI agent decides whether to:
+  - Send **discrete commands** (e.g., move up, rotate, land)
+  - Activate **continuous follow mode**
+- **Computer Vision Tracking** — YOLOv8 + OpenCV for robust, occlusion-resilient target following
+- **Multi-threaded Execution** — Heartbeat thread, video streaming, and continuous movement updates
+- **Hardware Agnostic** — Built for DJI Tello but adaptable to other drone platforms
 
-git clone https://github.com/YOUR-USERNAME/your-repo-name.git
-cd your-repo-name
+---
 
-2.Create a Virtual Environment
+## 📂 Repository Structure
 
-Windows:
+```
+.
+├── Drone+OpenAI/
+│ ├── voice_transcriber.py # Whisper-based speech-to-text
+│ ├── openAPI.py # OpenAI agent, command parsing, and action routing
+│ ├── drone_controller.py # Direct flight control logic for discrete commands
+│ └── skytrack.py # YOLOv8 + OpenCV continuous tracking mode
+│
+├── Yolo Model/
+│ ├── requirements.txt # Python dependencies
+│ └── yolov8n.pt # YOLO model weights
+│
+└── README.md 
+```
+
+---
+
+## 🛠 Setup Instructions
+
+### 1. Clone the Repository
+```bash
+git clone https://github.com/YOUR-USERNAME/llm-drone.git
+cd llm-drone
+```
+
+### 2. Create a Virtual Environment
+**Windows:**
+```bash
 python -m venv myenv
-.\myenv\Scripts\activate
-
-macOS/Linux:
+.\myenv\Scripts\ctivate
+```
+**macOS/Linux:**
+```bash
 python3 -m venv myenv
 source myenv/bin/activate
+```
 
-3.Install Dependencies
-
+### 3. Install Dependencies
+If you have `requirements.txt`:
+```bash
 pip install -r requirements.txt
-
-If requirements.txt is missing, install manually:
+```
+Or manually:
+```bash
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-pip install ultralytics opencv-python
+pip install ultralytics opencv-python openai pyaudio
+```
 
-Running YOLOv8 Inference
+---
 
-1.Test Detection on Sample Image
+## 🚀 Running the Drone System
 
-python test_yolo.py
+### 1. Connect Your Drone
+Ensure your DJI Tello (or compatible drone) is powered on and connected to your machine via WiFi.
 
-This runs YOLOv8 on a sample image and shows the detection result.
+### 2. Start Voice Control
+```bash
+python voice_transcriber.py
+```
+This starts the Whisper-based transcriber and routes recognized commands into the LLM pipeline.
 
-Directory Structure
+### 3. Issue Commands
+Examples:
+- `"take off"`
+- `"move up 100 cm"`
+- `"rotate 90 degrees"`
+- `"follow the person in the red shirt"`
 
-your-repo/
-├── test_yolo.py          (Quick test script for YOLOv8)
-├── requirements.txt      (Python package list)
-├── .gitignore            (Ignores virtual environment and cache)
-└── README.md             (This file)
+### 4. Stop or Land
+Say `"land"` to initiate landing.
 
-Notes
+---
 
-- Do not push the myenv/ folder to GitHub — it is already listed in .gitignore
-- If you add new Python packages, update requirements.txt using:
-  pip freeze > requirements.txt
-- Always activate the virtual environment before running code
+## 📡 How It Works
 
-TODO / Custom Training
+1. **Voice Input**  
+   `voice_transcriber.py` uses Whisper to transcribe your speech into text.
 
-- Collect labeled data for specific car types (SUV, Sedan, Truck, etc.)
-- Fine-tune YOLOv8 on a custom dataset using the Ultralytics training API
+2. **LLM Command Parsing**  
+   `openAPI.py` sends the text to an OpenAI agent, which decides whether the command is:
+   - A **discrete action** (sent to `drone_controller.py`)
+   - A **continuous tracking mode** (sent to `skytrack.py`)
+
+3. **Drone Execution**
+   - Discrete commands: altitude changes, rotations, land/takeoff
+   - Continuous tracking: YOLOv8 + OpenCV locks onto the target and maintains smooth pursuit
+
+---
+
+## ⚙️ Technical Challenges
+
+- **Multi-threading** — Required for stable flight control, heartbeat signals, and smooth tracking
+- **Smooth Follow** — Fine-tuning speed, acceleration, and update intervals to avoid overshooting
+- **Vision Model Choice** — Switching between fast OpenCV trackers and robust YOLOv8
+- **Voice Isolation** — Minimizing false triggers in noisy environments
+
+---
+
+## 📹 Demo Video
+[![Watch the Demo]()](https://www.youtube.com/watch?v=iRPw58BgnR8)
+
+---
+
+## 📌 Next Steps
+- Integrate GPS and onboard sensors for outdoor and large-area tracking
+- Expand follow mode to multiple object classes
+- Enhance voice pipeline with custom hotword detection
+
+---
+
+## 🔗 Links
+- **GitHub Repo:** [YOUR REPO LINK](https://github.com/Elijahtab/SkyPilot)
+
+---
