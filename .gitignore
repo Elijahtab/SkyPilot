@@ -21,4 +21,31 @@ Thumbs.db
 *.log
 *.tmp
 
+# Ignore top-level dataset images folder (only at repo root)
+/images/
+/labels/
+/runs/
+# Ignore labeling folders
+Labeling/images_to_label/
+Labeling/labels/
+
 flight_logs/*.mp4
+
+# Ignore backup folders created by scripts/operations
+backups/
+images_backup_*/
+labels_backup_*/
+devkit/
+devkit/*
+yolov8s-seg.pt
+yolov8s.pt
+
+# Ignore Yolo Model folder
+/YoloModel/
+YoloTraining/data2.yaml
+YoloTraining/data.yaml
+
+
+# Ignore Vehicle Type Detection folders images
+/Vehicle_type_detection/images/
+/Vehicle_type_detection/labels/
