@@ -126,6 +126,41 @@ Renamed `CAR` → **`Vehicle`** and reversed the prompt bias.
 `CAR` 41.5%, GT `Standard Car` → `CAR` 70%. `Standard Car` scores AP50 **0.240**,
 recall **0.111** — v4's worst class, on 10 matched boxes.
 
+### Resolution sweep (added after the reorg)
+
+`scripts/evaluation/sweep_imgsz.py`, v4 on val. **Inference-only** — v4 was
+trained at 640, so this is evidence about retraining, not a substitute for it.
+
+| imgsz | class-agnostic recall | mAP50-95 | precision | ms/img |
+|---|---|---|---|---|
+| 640 | 0.811 | **0.4396** | 0.727 | 13.8 |
+| 800 | 0.844 | 0.4227 | 0.629 | 21.4 |
+| **960** | **0.855** | 0.4154 | 0.666 | 32.8 |
+| 1280 | 0.841 | 0.3366 | 0.565 | 50.4 |
+
+**Recall rises, mAP falls, and both are real.** At 960 v4 finds 85.5% of vehicles
+vs 81.1% at 640 — a **23% reduction in vehicles missed entirely**. mAP falls
+because precision drops 0.727 → 0.666: the classic scale-prior mismatch of
+running a 640-trained model at 1.5x scale. Retraining at 960 is what removes it.
+
+Mean AP50 split by class support (threshold 200 GT boxes) — the headline mAP is
+actively misleading here:
+
+| imgsz | all 7 | Bus/Vehicle/Motorcycle/Truck | SUV/Standard Car/Van |
+|---|---|---|---|
+| 640 | 0.6306 | 0.6926 | 0.5480 |
+| **800** | 0.6165 | **0.7204 (+0.028)** | 0.4781 (-0.070) |
+| 960 | 0.6113 | 0.7149 (+0.022) | 0.4730 |
+| 1280 | 0.4944 | 0.6834 | 0.2424 |
+
+**SUV + Standard Car + Van hold 85 boxes out of 5,105 (1.7%) yet invert the
+headline**, because mAP weights all classes equally. Until the taxonomy is fixed,
+every experiment on this dataset will be distorted the same way.
+
+Box sizes explain the ceiling: 21.6% of val boxes are <16px at 640 (below YOLO's
+8px stride, effectively invisible). 960 lifts 11.8% of all boxes over 16px, 1280
+lifts 17.4%, leaving only 4.2% still tiny.
+
 ## Gotchas
 
 1. **The 207 labels in the pool predate the prompt fix.** Renaming the class did
@@ -150,6 +185,13 @@ recall **0.111** — v4's worst class, on 10 matched boxes.
    Always use `.\myenv\Scripts\python.exe`.
 8. `find_best_mAP50-95.py` (now `promote_best_model.py`) picked by mtime, which
    would have promoted **v7 (0.363) over v4 (0.430)**. Now picks by recorded mAP.
+9. **Ultralytics only populates `confusion_matrix` when `plots=True`.** With
+   `plots=False` the matrix stays all zeros and any metric derived from it
+   (class-agnostic recall) silently reads 0.000 rather than erroring. Bit me
+   once in `sweep_imgsz.py`; the comment there now says so.
+10. **Never trust the headline mAP on this dataset without checking per-class
+   support.** Three classes with 85 boxes between them reversed the entire
+   conclusion of the resolution sweep.
 
 ## Next steps
 
@@ -157,20 +199,26 @@ recall **0.111** — v4's worst class, on 10 matched boxes.
    `SUV`/`Standard Car` into `Vehicle` in the pool labels — cheap, and defensible
    given `Standard Car` has 18 val / 0 test boxes — or (b) relabel val/test to the
    fine-grained scheme. Option (a) gives a 5-class schema.
-2. **Re-label branch A against un-augmented source frames.** Dedupe to the 2,015
+2. **Retrain at imgsz 960.** Strongest measured lever after the taxonomy fix:
+   inference-only already gives +4.4pts class-agnostic recall (23% fewer misses),
+   and the accompanying precision drop is scale-prior mismatch that retraining
+   removes. Cost ~2.4x train time; 32.8 ms/img at inference (~30fps, still fine
+   for the drone tracker). Do this AFTER step 1 or the thin classes will mask it.
+3. **Re-label branch A against un-augmented source frames.** Dedupe to the 2,015
    unique frames first (`_jpg.rf.` prefix split) — that alone is a ~62% API cost
    saving, and it removes the sideways-vehicle problem. This is also the only
-   thing that will move the 0.219 recall.
-3. **Reconstruct `train_vehicle_v4.py` while the weights still exist.** No script
+   thing that will move the 0.219 recall on that pool.
+4. **Reconstruct `train_vehicle_v4.py` while the weights still exist.** No script
    reproduces the best model or the init point for v5/v7. Recorded args:
    `lr0 0.01, optimizer auto, mosaic 1.0, freeze null, epochs 50`, initialised
    from a `runs/Vehicle_type_detection/weights/best.pt` that is gone.
-4. **Only then retrain**, and gate on `diagnose_labels.py` before merging.
-5. Decide whether to push `8ec058a` / `487cae3` to `origin/ModelTraining` —
-   currently local only.
-6. Optional: branch B's 99 images are recoverable if re-proposed with v4 as the
+5. **Gate any new auto-labeled batch on `diagnose_labels.py`** before merging it
+   into the pool.
+6. Decide whether to push the local commits to `origin/ModelTraining` — nothing
+   has been pushed.
+7. Optional: branch B's 99 images are recoverable if re-proposed with v4 as the
    detector (0.910 recall on that imagery) instead of yolov8n.
-7. Minor script refinement: `diagnose_labels.py` prints
+8. Minor script refinement: `diagnose_labels.py` prints
    "UNDER-ANNOTATED: model finds real objects the labels omit" whenever
    precision < 0.6. On branch A that explanation is wrong — precision is 0.505
    because v4 emits only 1,063 boxes on the augmented imagery and half miss,

@@ -87,6 +87,15 @@ def build_data_yaml(name: str, train=None, val=None, test=None) -> Path:
             return None
         return [str(Path(p)) for p in v] if isinstance(v, (list, tuple)) else str(Path(v))
 
+    # ultralytics' check_det_dataset() hard-requires both 'train' and 'val' keys
+    # even for a val-only run, so mirror whichever one is missing.
+    if train is None:
+        train = val
+    if val is None:
+        val = train
+    if train is None:
+        raise ValueError("build_data_yaml needs at least one of train= or val=")
+
     cfg = {"names": CLASS_NAMES, "nc": NC}
     for key, val_ in (("train", train), ("val", val), ("test", test)):
         if val_ is not None:
