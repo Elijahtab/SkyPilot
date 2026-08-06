@@ -35,16 +35,22 @@ class `CAR` → `Vehicle`, and restructured all vision code into a single tree.
 - All scripts compile (`compileall`); all four training scripts' `sanity_check()`
   resolve paths and report correct counts (967 / 216 / 108 base, 207 pool).
 - Pool is exactly 207 images / 207 labels == branch A stem set.
+- **Post-cleanup `diagnose_labels.py` on the 207-only pool completed and matches
+  the pre-cleanup branch-A measurement exactly** — recall `0.219`, precision
+  `0.505`, agreement `0.212`. Two things confirmed at once: the reorganized
+  script is correct, and the pool is cleanly branch A with no branch B residue.
+
+  Versus the old mixed 306-image pool: precision **0.331 → 0.505** (the
+  under-annotated batch is gone, as predicted) and agreement **0.189 → 0.212**
+  (unchanged, as predicted). Recall **fell, 0.371 → 0.219** — not a regression,
+  just arithmetic: branch B had 0.910 recall and was inflating the average. The
+  remaining 0.219 is the branch A augmented-imagery problem in isolation.
 
 ### Pending — NOT verified
 
 1. **No model has been retrained since the cleanup.** `v4` is still champion at
    0.430. The fixes are not yet proven to *improve* anything.
-2. **A post-cleanup re-run of `diagnose_labels.py` on the 207-only pool was still
-   running when this hand-off was written.** Expect precision to improve (the
-   under-annotated batch is gone) and agreement to stay ~0.19–0.21 (the taxonomy
-   fix only affects *future* labeling — see Gotcha 1).
-3. The 207 labels in the pool **still use the old vocabulary**.
+2. The 207 labels in the pool **still use the old vocabulary**.
 
 ## Key findings
 
@@ -147,26 +153,29 @@ recall **0.111** — v4's worst class, on 10 matched boxes.
 
 ## Next steps
 
-1. **Confirm the post-cleanup diagnostic** (was mid-run at hand-off):
-   ```powershell
-   .\myenv\Scripts\python.exe scripts\evaluation\diagnose_labels.py
-   .\myenv\Scripts\python.exe scripts\evaluation\diagnose_labels.py --control
-   ```
-2. **Decide the taxonomy policy before any retraining.** Either (a) collapse
+1. **Decide the taxonomy policy before any retraining.** Either (a) collapse
    `SUV`/`Standard Car` into `Vehicle` in the pool labels — cheap, and defensible
    given `Standard Car` has 18 val / 0 test boxes — or (b) relabel val/test to the
    fine-grained scheme. Option (a) gives a 5-class schema.
-3. **Re-label branch A against un-augmented source frames.** Dedupe to the 2,015
+2. **Re-label branch A against un-augmented source frames.** Dedupe to the 2,015
    unique frames first (`_jpg.rf.` prefix split) — that alone is a ~62% API cost
-   saving, and it removes the sideways-vehicle problem.
-4. **Reconstruct `train_vehicle_v4.py` while the weights still exist.** No script
+   saving, and it removes the sideways-vehicle problem. This is also the only
+   thing that will move the 0.219 recall.
+3. **Reconstruct `train_vehicle_v4.py` while the weights still exist.** No script
    reproduces the best model or the init point for v5/v7. Recorded args:
    `lr0 0.01, optimizer auto, mosaic 1.0, freeze null, epochs 50`, initialised
    from a `runs/Vehicle_type_detection/weights/best.pt` that is gone.
-5. **Only then retrain**, and gate on `diagnose_labels.py` before merging.
-6. Decide whether to push `8ec058a` to `origin/ModelTraining` — currently local.
-7. Optional: branch B's 99 images are recoverable if re-proposed with v4 as the
+4. **Only then retrain**, and gate on `diagnose_labels.py` before merging.
+5. Decide whether to push `8ec058a` / `487cae3` to `origin/ModelTraining` —
+   currently local only.
+6. Optional: branch B's 99 images are recoverable if re-proposed with v4 as the
    detector (0.910 recall on that imagery) instead of yolov8n.
+7. Minor script refinement: `diagnose_labels.py` prints
+   "UNDER-ANNOTATED: model finds real objects the labels omit" whenever
+   precision < 0.6. On branch A that explanation is wrong — precision is 0.505
+   because v4 emits only 1,063 boxes on the augmented imagery and half miss,
+   not because labels are absent. The number is right, the canned diagnosis
+   isn't; consider gating that message on `recall > 0.6` as well.
 
 ## References
 
