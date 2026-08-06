@@ -1,0 +1,15 @@
+# Stanford Cars 11-class schema — LEGACY, superseded by vehicle_7class.yaml
+#
+# Produced by scripts/archive/remap_labels.py from the Stanford Cars devkit.
+# Kept to document the runs under runs/ (stanford_training_set_11classes,
+# finetune_train*_11classes). Class 0 'Vehicle' (formerly 'CAR') is the
+# generic bucket, same convention as the 7-class schema.
+#
+# Paths are relative to repo root; see the resolution note in vehicle_7class.yaml.
+
+nc: 11
+names: ['Vehicle', 'Convertible', 'Coupe', 'ExoticSports', 'Hatchback',
+        'Minivan', 'PickupTruck', 'SUV', 'Sedan', 'Van', 'Wagon']
+
+train: images/train
+val:   images/val

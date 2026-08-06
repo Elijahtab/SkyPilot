@@ -1,0 +1,21 @@
+# Vehicle type detection — 7-class schema (CURRENT)
+#
+# This file is the single source of truth for the class list; scripts/_paths.py
+# reads `names` from here. Split paths below are for reference only — scripts
+# build their own data yaml at runtime via _paths.build_data_yaml(), because
+# ultralytics resolves a relative `path:` against its global datasets_dir rather
+# than against this file's location.
+#
+# Class 1 'Vehicle' (formerly 'CAR') is the GENERIC bucket, used when a vehicle
+# is present but its subtype is not confidently determinable. It deliberately
+# overlaps SUV / Standard Car / Van. Any auto-labeling pass must follow the same
+# convention or the labels will contradict this dataset — see
+# scripts/evaluation/diagnose_labels.py before merging a new batch.
+
+nc: 7
+names: ['Bus', 'Vehicle', 'Motorcycle', 'SUV', 'Standard Car', 'Truck', 'Van']
+
+# reference layout (relative to repo root)
+train: Vehicle_type_detection/images/images_train
+val:   Vehicle_type_detection/images/images_val
+test:  Vehicle_type_detection/images/images_test

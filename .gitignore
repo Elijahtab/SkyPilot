@@ -21,13 +21,20 @@ Thumbs.db
 *.log
 *.tmp
 
-# Ignore top-level dataset images folder (only at repo root)
+# ── Datasets (large, regenerable from scripts/labeling/) ─────────────
+# top-level dataset folders (only at repo root)
 /images/
 /labels/
 /runs/
-# Ignore labeling folders
+/preds/
+/Vehicle_type_detection/images/
+/Vehicle_type_detection/labels/
+
+# labeling work areas
 Labeling/images_to_label/
 Labeling/labels/
+Labeling/preview/
+Labeling/quarantine_branchB_yolov8n/
 
 flight_logs/*.mp4
 
@@ -37,15 +44,22 @@ images_backup_*/
 labels_backup_*/
 devkit/
 devkit/*
-yolov8s-seg.pt
-yolov8s.pt
 
-# Ignore Yolo Model folder
+# dataset media — deliberately untracked (see commit c0e56ff); re-fetch with
+# scripts/labeling/download_kaggle.py
+Labeling/kaggle_dataset/train/
+Labeling/kaggle_dataset/valid/
+Labeling/kaggle_dataset/test/
+
+# ── Weights ──────────────────────────────────────────────────────────
+# Pretrained backbones are downloadable; only these two were already
+# untracked, kept that way to avoid growing the (already ~1.2GB) history.
+weights/pretrained/yolov8s.pt
+weights/pretrained/yolov8s-seg.pt
+
+# Class-name-retagged checkpoint copies (~600MB). Regenerate in seconds with
+# scripts/tools/retag_checkpoint.py --all
+*_vehicle.pt
+
+# Legacy scratch folder, superseded by weights/ + scripts/
 /YoloModel/
-YoloTraining/data2.yaml
-YoloTraining/data.yaml
-
-
-# Ignore Vehicle Type Detection folders images
-/Vehicle_type_detection/images/
-/Vehicle_type_detection/labels/

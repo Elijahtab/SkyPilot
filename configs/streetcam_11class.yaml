@@ -1,0 +1,13 @@
+# Street-camera pool, 11-class schema — LEGACY, superseded by vehicle_7class.yaml
+#
+# Documents the run runs/streetcam_training_set_11classes. Class 0 'Vehicle'
+# (formerly 'CAR') is the generic bucket.
+#
+# Paths are relative to repo root; see the resolution note in vehicle_7class.yaml.
+
+nc: 11
+names: ['Vehicle', 'Convertible', 'Coupe', 'ExoticSports', 'Hatchback',
+        'Minivan', 'PickupTruck', 'SUV', 'Sedan', 'Van', 'Wagon']
+
+train: images/traffic_cam
+val:   images/traffic_cam_val

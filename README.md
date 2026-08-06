@@ -24,17 +24,27 @@ It combines **OpenAI's GPT function calling**, **Whisper speech-to-text**, **YOL
 
 ```
 .
-├── Drone+OpenAI/
-│ ├── voice_transcriber.py # Whisper-based speech-to-text
-│ ├── openAPI.py # OpenAI agent, command parsing, and action routing
-│ ├── drone_controller.py # Direct flight control logic for discrete commands
-│ └── skytrack.py # YOLOv8 + OpenCV continuous tracking mode
+├── Drone+OpenAI/            # Voice-controlled drone pipeline
+│ ├── voice_transcriber.py   # Whisper-based speech-to-text
+│ ├── openAPI.py             # OpenAI agent, command parsing, and action routing
+│ ├── drone_controller.py    # Direct flight control logic for discrete commands
+│ └── skytrack.py            # YOLOv8 + OpenCV continuous tracking mode
 │
-├── Yolo Model/
-│ ├── requirements.txt # Python dependencies
-│ └── yolov8n.pt # YOLO model weights
+├── scripts/                 # Vision / model-training pipeline — see scripts/README.md
+│ ├── _paths.py              # Repo paths + class schema (single source of truth)
+│ ├── labeling/              # Kaggle download, GPT-4o auto-labeling
+│ ├── training/              # train_vehicle_v1/v5/v6/v7.py
+│ ├── evaluation/            # eval, compare, predict, label-quality gate
+│ ├── tools/                 # val splits, promote/retag checkpoints
+│ └── archive/               # dead + legacy scripts (each says why)
 │
-└── README.md 
+├── configs/                 # Dataset + class-schema yamls
+├── weights/                 # pretrained/ backbones, released/ promoted checkpoints
+├── Vehicle_type_detection/  # Vehicle-type dataset + training runs
+├── Labeling/                # Kaggle dataset, previews, quarantine
+│
+├── requirements.txt
+└── README.md
 ```
 
 ---
@@ -109,11 +119,21 @@ Say `"land"` to initiate landing.
 
 ---
 
-### YOLOv8 Inference Workflow
-1. **Test Detection on Sample Image**  
-   ```bash
-   python test_yolo.py
+### Vehicle Detection Model
 
+A separate 7-class vehicle-type detector (`Bus, Vehicle, Motorcycle, SUV,
+Standard Car, Truck, Van`) is trained under [`scripts/`](scripts/).
+**See [scripts/README.md](scripts/README.md)** for the full pipeline, the run
+history, and the label-quality gate you must pass before training on
+auto-labeled data.
+
+```powershell
+.\myenv\Scripts\python.exe scripts\evaluation\eval_model.py              # evaluate
+.\myenv\Scripts\python.exe scripts\evaluation\predict_images.py          # inference
+.\myenv\Scripts\python.exe scripts\evaluation\diagnose_labels.py         # label QA
+```
+
+Best model to date is `Vehicle_type_detection_v4` (val mAP50-95 **0.430**).
 
 ---
 

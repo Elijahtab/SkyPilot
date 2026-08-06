@@ -1,6 +1,0 @@
-train: S:\GitHub\SkyPilot\Vehicle_type_detection\images\images_train
-val: S:\GitHub\SkyPilot\Vehicle_type_detection\images\images_val
-test: S:\GitHub\SkyPilot\Vehicle_type_detection\images\images_test
-
-nc: 7
-names: ['Bus', 'CAR', 'Motorcycle', 'SUV', 'Standard Car', 'Truck', 'Van']
