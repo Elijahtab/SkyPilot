@@ -22,9 +22,9 @@ from ultralytics.engine.results import Boxes
 # ────────────────────────────────────────────────────────────
 # CONFIG — edit to fit your paths / dataset
 # ────────────────────────────────────────────────────────────
-WEIGHTS  = r"S:/GitHub/SkyPilot/Vehicle_type_detection/runs/Vehicle_type_detection_v4/weights/best.pt"
+WEIGHTS  = r"S:/GitHub/SkyPilot/Vehicle_type_detection/runs/Vehicle_type_detection_v5/weights/best.pt"
 SOURCE   = r"S:/GitHub/SkyPilot/Vehicle_type_detection/images/images_test"  # folder or glob
-OUT_DIR  = r"S:/GitHub/SkyPilot/preds_vehicle_v4"
+OUT_DIR  = r"S:/GitHub/SkyPilot/preds_vehicle_v5"
 
 CAR_ID   = 1       # 'CAR' index in [Bus, CAR, Motorcycle, …]
 THRESH   = 0.55    # keep non‑CAR only if conf ≥ THRESH

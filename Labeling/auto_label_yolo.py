@@ -10,11 +10,11 @@ if not API_KEY:
         "  $env:OPENAI_API_KEY = '<your-key>'\n"
         "Or export it in your shell / CI secrets."
     )
-GPT_MODEL_ID  = "gpt-4o-mini"                # or any vision-capable model
+GPT_MODEL_ID  = "gpt-4o"                     # using the smarter model
 YOLO_WEIGHTS  = "yolov8n.pt"                 # detector weights (swap for your own)
 CONF_THR      = 0.3                          # YOLO confidence threshold
 MAX_IMAGES    = None                         # None = all; or put 5 for quick test
-DETAIL        = "low"                        # GPT image detail
+DETAIL        = "high"                       # GPT image detail
 
 # paths relative to this script
 ROOT_DIR   = pathlib.Path(__file__).resolve().parent
@@ -55,8 +55,14 @@ for img_path in images:
     img   = cv2.imread(str(img_path))
     h, w  = img.shape[:2]
 
-    # YOLO detect
-    det_res = detector.predict(source=img, conf=CONF_THR, verbose=False, save=False)[0]
+    # Skip if we already labeled this image
+    txt_path = LBL_DIR / f"{img_path.stem}.txt"
+    if txt_path.exists():
+        print(f"{img_path.name:>20} → Already processed successfully. Resuming!")
+        continue
+
+    # YOLO detect (filter to COCO vehicles: 2=car, 3=motorcycle, 5=bus, 7=truck)
+    det_res = detector.predict(source=img, conf=CONF_THR, classes=[2, 3, 5, 7], verbose=False, save=False)[0]
     boxes   = det_res.boxes.xyxy.cpu().tolist()      # list of [x1,x2,y1,y2]
     if not boxes:
         print(f"{img_path.name:>20} → No detections, skipping")
@@ -85,15 +91,19 @@ for img_path in images:
                 "image_url": {"url": to_data_url(crop), "detail": DETAIL},
                 },
             ]
-        resp = client.chat.completions.create(
-            model=GPT_MODEL_ID,
-            response_format={"type":"json_object"},
-            max_tokens=10,
-            messages=[{"role":"user","content":msg}],
-            temperature=0,
-        )
-        cls_id = int(json.loads(resp.choices[0].message.content)["class_id"])
-        class_ids.append(cls_id)
+        try:
+            resp = client.chat.completions.create(
+                model=GPT_MODEL_ID,
+                response_format={"type":"json_object"},
+                max_tokens=10,
+                messages=[{"role":"user","content":msg}],
+                temperature=0,
+            )
+            cls_id = int(json.loads(resp.choices[0].message.content)["class_id"])
+            class_ids.append(cls_id)
+        except Exception as e:
+            print(f"Error classifying crop via API: {e}")
+            class_ids.append(1) # fallback to CAR
 
     # 3️⃣  write YOLO label file
     txt_path = LBL_DIR / f"{img_path.stem}.txt"

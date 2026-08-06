@@ -1,0 +1,197 @@
+old_id,old_name,new_class,new_id
+0,AM General Hummer SUV 2000,SUV,0
+1,Acura RL Sedan 2012,Sedan,1
+2,Acura TL Sedan 2012,Sedan,1
+3,Acura TL Type-S 2008,Sedan,1
+4,Acura TSX Sedan 2012,Sedan,1
+5,Acura Integra Type R 2001,Sedan,1
+6,Acura ZDX Hatchback 2012,Hatchback,4
+7,Aston Martin V8 Vantage Convertible 2012,ExoticSports,9
+8,Aston Martin V8 Vantage Coupe 2012,ExoticSports,9
+9,Aston Martin Virage Convertible 2012,ExoticSports,9
+10,Aston Martin Virage Coupe 2012,ExoticSports,9
+11,Audi RS 4 Convertible 2008,Convertible,3
+12,Audi A5 Coupe 2012,Coupe,2
+13,Audi TTS Coupe 2012,Coupe,2
+14,Audi R8 Coupe 2012,Coupe,2
+15,Audi V8 Sedan 1994,Sedan,1
+16,Audi 100 Sedan 1994,Sedan,1
+17,Audi 100 Wagon 1994,Wagon,5
+18,Audi TT Hatchback 2011,Hatchback,4
+19,Audi S6 Sedan 2011,Sedan,1
+20,Audi S5 Convertible 2012,Convertible,3
+21,Audi S5 Coupe 2012,Coupe,2
+22,Audi S4 Sedan 2012,Sedan,1
+23,Audi S4 Sedan 2007,Sedan,1
+24,Audi TT RS Coupe 2012,Coupe,2
+25,BMW ActiveHybrid 5 Sedan 2012,Sedan,1
+26,BMW 1 Series Convertible 2012,Convertible,3
+27,BMW 1 Series Coupe 2012,Coupe,2
+28,BMW 3 Series Sedan 2012,Sedan,1
+29,BMW 3 Series Wagon 2012,Wagon,5
+30,BMW 6 Series Convertible 2007,Convertible,3
+31,BMW X5 SUV 2007,SUV,0
+32,BMW X6 SUV 2012,SUV,0
+33,BMW M3 Coupe 2012,Coupe,2
+34,BMW M5 Sedan 2010,Sedan,1
+35,BMW M6 Convertible 2010,Convertible,3
+36,BMW X3 SUV 2012,SUV,0
+37,BMW Z4 Convertible 2012,Convertible,3
+38,Bentley Continental Supersports Conv. Convertible 2012,ExoticSports,9
+39,Bentley Arnage Sedan 2009,ExoticSports,9
+40,Bentley Mulsanne Sedan 2011,ExoticSports,9
+41,Bentley Continental GT Coupe 2012,ExoticSports,9
+42,Bentley Continental GT Coupe 2007,ExoticSports,9
+43,Bentley Continental Flying Spur Sedan 2007,ExoticSports,9
+44,Bugatti Veyron 16.4 Convertible 2009,ExoticSports,9
+45,Bugatti Veyron 16.4 Coupe 2009,ExoticSports,9
+46,Buick Regal GS 2012,Sedan,1
+47,Buick Rainier SUV 2007,SUV,0
+48,Buick Verano Sedan 2012,Sedan,1
+49,Buick Enclave SUV 2012,SUV,0
+50,Cadillac CTS-V Sedan 2012,Sedan,1
+51,Cadillac SRX SUV 2012,SUV,0
+52,Cadillac Escalade EXT Crew Cab 2007,PickupTruck,7
+53,Chevrolet Silverado 1500 Hybrid Crew Cab 2012,PickupTruck,7
+54,Chevrolet Corvette Convertible 2012,Convertible,3
+55,Chevrolet Corvette ZR1 2012,Sedan,1
+56,Chevrolet Corvette Ron Fellows Edition Z06 2007,ExoticSports,9
+57,Chevrolet Traverse SUV 2012,SUV,0
+58,Chevrolet Camaro Convertible 2012,Convertible,3
+59,Chevrolet HHR SS 2010,Sedan,1
+60,Chevrolet Impala Sedan 2007,Sedan,1
+61,Chevrolet Tahoe Hybrid SUV 2012,SUV,0
+62,Chevrolet Sonic Sedan 2012,Sedan,1
+63,Chevrolet Express Cargo Van 2007,Van,8
+64,Chevrolet Avalanche Crew Cab 2012,PickupTruck,7
+65,Chevrolet Cobalt SS 2010,Sedan,1
+66,Chevrolet Malibu Hybrid Sedan 2010,Sedan,1
+67,Chevrolet TrailBlazer SS 2009,Sedan,1
+68,Chevrolet Silverado 2500HD Regular Cab 2012,PickupTruck,7
+69,Chevrolet Silverado 1500 Classic Extended Cab 2007,PickupTruck,7
+70,Chevrolet Express Van 2007,Van,8
+71,Chevrolet Monte Carlo Coupe 2007,Coupe,2
+72,Chevrolet Malibu Sedan 2007,Sedan,1
+73,Chevrolet Silverado 1500 Extended Cab 2012,PickupTruck,7
+74,Chevrolet Silverado 1500 Regular Cab 2012,PickupTruck,7
+75,Chrysler Aspen SUV 2009,SUV,0
+76,Chrysler Sebring Convertible 2010,Convertible,3
+77,Chrysler Town and Country Minivan 2012,Minivan,6
+78,Chrysler 300 SRT-8 2010,Sedan,1
+79,Chrysler Crossfire Convertible 2008,Convertible,3
+80,Chrysler PT Cruiser Convertible 2008,Convertible,3
+81,Daewoo Nubira Wagon 2002,Wagon,5
+82,Dodge Caliber Wagon 2012,Wagon,5
+83,Dodge Caliber Wagon 2007,Wagon,5
+84,Dodge Caravan Minivan 1997,Minivan,6
+85,Dodge Ram Pickup 3500 Crew Cab 2010,PickupTruck,7
+86,Dodge Ram Pickup 3500 Quad Cab 2009,PickupTruck,7
+87,Dodge Sprinter Cargo Van 2009,Van,8
+88,Dodge Journey SUV 2012,SUV,0
+89,Dodge Dakota Crew Cab 2010,PickupTruck,7
+90,Dodge Dakota Club Cab 2007,Sedan,1
+91,Dodge Magnum Wagon 2008,Wagon,5
+92,Dodge Challenger SRT8 2011,Sedan,1
+93,Dodge Durango SUV 2012,SUV,0
+94,Dodge Durango SUV 2007,SUV,0
+95,Dodge Charger Sedan 2012,Sedan,1
+96,Dodge Charger SRT-8 2009,Sedan,1
+97,Eagle Talon Hatchback 1998,Hatchback,4
+98,FIAT 500 Abarth 2012,Sedan,1
+99,FIAT 500 Convertible 2012,Convertible,3
+100,Ferrari FF Coupe 2012,ExoticSports,9
+101,Ferrari California Convertible 2012,ExoticSports,9
+102,Ferrari 458 Italia Convertible 2012,ExoticSports,9
+103,Ferrari 458 Italia Coupe 2012,ExoticSports,9
+104,Fisker Karma Sedan 2012,Sedan,1
+105,Ford F-450 Super Duty Crew Cab 2012,PickupTruck,7
+106,Ford Mustang Convertible 2007,Convertible,3
+107,Ford Freestar Minivan 2007,Minivan,6
+108,Ford Expedition EL SUV 2009,SUV,0
+109,Ford Edge SUV 2012,SUV,0
+110,Ford Ranger SuperCab 2011,Sedan,1
+111,Ford GT Coupe 2006,Coupe,2
+112,Ford F-150 Regular Cab 2012,PickupTruck,7
+113,Ford F-150 Regular Cab 2007,PickupTruck,7
+114,Ford Focus Sedan 2007,Sedan,1
+115,Ford E-Series Wagon Van 2012,Van,8
+116,Ford Fiesta Sedan 2012,Sedan,1
+117,GMC Terrain SUV 2012,SUV,0
+118,GMC Savana Van 2012,Van,8
+119,GMC Yukon Hybrid SUV 2012,SUV,0
+120,GMC Acadia SUV 2012,SUV,0
+121,GMC Canyon Extended Cab 2012,PickupTruck,7
+122,Geo Metro Convertible 1993,Convertible,3
+123,HUMMER H3T Crew Cab 2010,PickupTruck,7
+124,HUMMER H2 SUT Crew Cab 2009,PickupTruck,7
+125,Honda Odyssey Minivan 2012,Minivan,6
+126,Honda Odyssey Minivan 2007,Minivan,6
+127,Honda Accord Coupe 2012,Coupe,2
+128,Honda Accord Sedan 2012,Sedan,1
+129,Hyundai Veloster Hatchback 2012,Hatchback,4
+130,Hyundai Santa Fe SUV 2012,SUV,0
+131,Hyundai Tucson SUV 2012,SUV,0
+132,Hyundai Veracruz SUV 2012,SUV,0
+133,Hyundai Sonata Hybrid Sedan 2012,Sedan,1
+134,Hyundai Elantra Sedan 2007,Sedan,1
+135,Hyundai Accent Sedan 2012,Sedan,1
+136,Hyundai Genesis Sedan 2012,Sedan,1
+137,Hyundai Sonata Sedan 2012,Sedan,1
+138,Hyundai Elantra Touring Hatchback 2012,Hatchback,4
+139,Hyundai Azera Sedan 2012,Sedan,1
+140,Infiniti G Coupe IPL 2012,Coupe,2
+141,Infiniti QX56 SUV 2011,SUV,0
+142,Isuzu Ascender SUV 2008,SUV,0
+143,Jaguar XK XKR 2012,Sedan,1
+144,Jeep Patriot SUV 2012,SUV,0
+145,Jeep Wrangler SUV 2012,SUV,0
+146,Jeep Liberty SUV 2012,SUV,0
+147,Jeep Grand Cherokee SUV 2012,SUV,0
+148,Jeep Compass SUV 2012,SUV,0
+149,Lamborghini Reventon Coupe 2008,ExoticSports,9
+150,Lamborghini Aventador Coupe 2012,ExoticSports,9
+151,Lamborghini Gallardo LP 570-4 Superleggera 2012,ExoticSports,9
+152,Lamborghini Diablo Coupe 2001,ExoticSports,9
+153,Land Rover Range Rover SUV 2012,SUV,0
+154,Land Rover LR2 SUV 2012,SUV,0
+155,Lincoln Town Car Sedan 2011,Sedan,1
+156,MINI Cooper Roadster Convertible 2012,Convertible,3
+157,Maybach Landaulet Convertible 2012,ExoticSports,9
+158,Mazda Tribute SUV 2011,SUV,0
+159,McLaren MP4-12C Coupe 2012,ExoticSports,9
+160,Mercedes-Benz 300-Class Convertible 1993,Convertible,3
+161,Mercedes-Benz C-Class Sedan 2012,Sedan,1
+162,Mercedes-Benz SL-Class Coupe 2009,Coupe,2
+163,Mercedes-Benz E-Class Sedan 2012,Sedan,1
+164,Mercedes-Benz S-Class Sedan 2012,Sedan,1
+165,Mercedes-Benz Sprinter Van 2012,Van,8
+166,Mitsubishi Lancer Sedan 2012,Sedan,1
+167,Nissan Leaf Hatchback 2012,Hatchback,4
+168,Nissan NV Passenger Van 2012,Van,8
+169,Nissan Juke Hatchback 2012,Hatchback,4
+170,Nissan 240SX Coupe 1998,Coupe,2
+171,Plymouth Neon Coupe 1999,Coupe,2
+172,Porsche Panamera Sedan 2012,Sedan,1
+173,Ram C/V Cargo Van Minivan 2012,Minivan,6
+174,Rolls-Royce Phantom Drophead Coupe Convertible 2012,ExoticSports,9
+175,Rolls-Royce Ghost Sedan 2012,ExoticSports,9
+176,Rolls-Royce Phantom Sedan 2012,ExoticSports,9
+177,Scion xD Hatchback 2012,Hatchback,4
+178,Spyker C8 Convertible 2009,ExoticSports,9
+179,Spyker C8 Coupe 2009,ExoticSports,9
+180,Suzuki Aerio Sedan 2007,Sedan,1
+181,Suzuki Kizashi Sedan 2012,Sedan,1
+182,Suzuki SX4 Hatchback 2012,Hatchback,4
+183,Suzuki SX4 Sedan 2012,Sedan,1
+184,Tesla Model S Sedan 2012,Sedan,1
+185,Toyota Sequoia SUV 2012,SUV,0
+186,Toyota Camry Sedan 2012,Sedan,1
+187,Toyota Corolla Sedan 2012,Sedan,1
+188,Toyota 4Runner SUV 2012,SUV,0
+189,Volkswagen Golf Hatchback 2012,Hatchback,4
+190,Volkswagen Golf Hatchback 1991,Hatchback,4
+191,Volkswagen Beetle Hatchback 2012,Hatchback,4
+192,Volvo C30 Hatchback 2012,Hatchback,4
+193,Volvo 240 Sedan 1993,Sedan,1
+194,Volvo XC90 SUV 2007,SUV,0
+195,smart fortwo Convertible 2012,Convertible,3

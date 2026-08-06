@@ -10,18 +10,18 @@ if not API_KEY:
         "Or export it in your shell / CI secrets."
     )
 GPT_MODEL_ID  = "gpt-4o"                     # using the smarter model
-MAX_IMAGES    = 500                          # None = all; or put count
+MAX_IMAGES    = None                         # None = all; or put count
 DETAIL        = "high"                       # high detail crops for better ID
 
 # paths relative to this script
 ROOT_DIR   = pathlib.Path(__file__).resolve().parent
-IMG_DIR    = ROOT_DIR / "kaggle_dataset" / "images"
-LBL_DIR    = ROOT_DIR / "kaggle_dataset" / "labels"
+IMG_DIR    = ROOT_DIR / "kaggle_dataset" / "train" / "images"
+LBL_DIR    = ROOT_DIR / "kaggle_dataset" / "train" / "labels_gpt"
 PREV_DIR   = ROOT_DIR / "kaggle_dataset" / "preview"
 YAML_FILE  = ROOT_DIR.parent /"YoloTraining"/"data_vehicle_type_detection_v4.yaml"
 
 # PATH TO KAGGLE CACHE LABELS
-KAGGLE_LBL_DIR = pathlib.Path(os.path.expanduser("~/.cache/kagglehub/datasets/ryankraus/traffic-camera-object-detection/versions/1/traffic/train/labels"))
+KAGGLE_LBL_DIR = ROOT_DIR / "kaggle_dataset" / "train" / "labels"
 
 # ─── read YAML class list ────────────────────────────────────────────
 with open(YAML_FILE, "r") as f:
