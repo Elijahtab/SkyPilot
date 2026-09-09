@@ -52,6 +52,21 @@ SUV / Standard Car / Van, and it's ~78% of the boxes in the base dataset.
 .\myenv\Scripts\python.exe scripts\evaluation\diagnose_labels.py      # GATE
 ```
 
+**Hand-label the vehicle types** — no API cost; you assign the subtype to each box.
+
+```powershell
+.\myenv\Scripts\python.exe scripts\labeling\download_kaggle.py        # once
+.\myenv\Scripts\python.exe scripts\labeling\manual_label.py           # hover a box, press 1-7
+.\myenv\Scripts\python.exe scripts\labeling\extract_good_kaggle.py    # -> images/labels/kaggle_gpt
+.\myenv\Scripts\python.exe scripts\evaluation\diagnose_labels.py      # GATE
+```
+
+`manual_label.py` defaults to `--boxes auto`: it seeds each frame with the Kaggle
+human boxes (a generic detector only finds ~20% of the vehicles in that 416×416
+augmented imagery) and falls back to `yolov8m` only for frames with no boxes. It
+writes to the same `train/labels_gpt/` the auto-labeler uses, and skips frames
+already done there, so the two flows interleave and both resume.
+
 **Train / evaluate**
 
 ```powershell
