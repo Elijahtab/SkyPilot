@@ -71,7 +71,13 @@ def diagnose(img_dir: Path, lbl_dir: Path, weights: Path):
     agree = np.zeros((NC, NC), int)
     matched_scale, missed_scale = [], []
 
-    for r in model.predict(source=[str(p) for p in imgs], conf=CONF, imgsz=640,
+    # Pass the DIRECTORY, never a list of paths. Ultralytics sets the predictor
+    # batch size to len(source) when source is a list, so a list OOMs on any pool
+    # bigger than the GPU holds at once — it silently worked at 207 images and
+    # died at 521 with a 9.5 GiB allocation in a C2f block. Neither stream=True
+    # nor batch=1 caps it (batch= is ignored for list sources); a directory
+    # source gives bs=1. Results still carry r.path, so label lookup is unchanged.
+    for r in model.predict(source=str(img_dir), conf=CONF, imgsz=640,
                            stream=True, verbose=False,
                            device=0 if torch.cuda.is_available() else "cpu"):
         h, w = r.orig_shape

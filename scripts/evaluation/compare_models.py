@@ -52,17 +52,29 @@ def evaluate(path: Path, tag: str, split: str):
     model = YOLO(str(path))
     m = model.val(data=str(build_data_yaml("compare", val=VTD_VAL, test=VTD_TEST)),
                   split=split, imgsz=640, batch=16, plots=False)
-    per_class = {model.names[c]: m.box.ap50[i] for i, c in enumerate(m.box.ap_class_index)}
+    # Index into CLASS_NAMES, NOT model.names. Ultralytics bakes class names into
+    # the .pt, and v4's best.pt still says 'CAR' where the schema says 'Vehicle';
+    # keying by the checkpoint's own names made v4's largest class silently print
+    # as '--' in the per-class table. Class *indices* are consistent everywhere.
+    per_class = {CLASS_NAMES[c]: m.box.ap50[i] for i, c in enumerate(m.box.ap_class_index)}
     return {"tag": tag, "mAP50": m.box.map50, "mAP50-95": m.box.map,
             "P": m.box.mp, "R": m.box.mr, "per_class": per_class}
 
 
 def main():
-    argv = [a for a in sys.argv[1:] if not a.startswith("--")]
+    # Strip '--split' AND the value after it. Filtering only on the '--' prefix
+    # left 'val' behind as a positional, so it was evaluated as a run tag and
+    # printed a spurious "weights not found for 'val'".
+    args = sys.argv[1:]
     split = "test"
-    if "--split" in sys.argv:
-        split = sys.argv[sys.argv.index("--split") + 1]
-    tags = argv or DEFAULT_RUNS
+    if "--split" in args:
+        i = args.index("--split")
+        if i + 1 < len(args):
+            split = args[i + 1]
+            del args[i:i + 2]
+        else:
+            sys.exit("[ERR] --split needs a value (val or test)")
+    tags = [a for a in args if not a.startswith("--")] or DEFAULT_RUNS
 
     results = []
     for t in tags:
