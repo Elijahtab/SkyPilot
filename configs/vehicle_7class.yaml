@@ -6,11 +6,23 @@
 # ultralytics resolves a relative `path:` against its global datasets_dir rather
 # than against this file's location.
 #
-# Class 1 'Vehicle' (formerly 'CAR') is the GENERIC bucket, used when a vehicle
-# is present but its subtype is not confidently determinable. It deliberately
-# overlaps SUV / Standard Car / Van. Any auto-labeling pass must follow the same
-# convention or the labels will contradict this dataset — see
-# scripts/evaluation/diagnose_labels.py before merging a new batch.
+# Class 1 'Vehicle' (formerly 'CAR') is the UMBRELLA term: it covers every type
+# in this list — Bus, Truck, Motorcycle, Van, Standard Car and SUV alike. It is
+# NOT a sibling bucket, and SUV / Standard Car must never be merged into it: they
+# are the only body-style labels this project has.
+#
+# In practice 'Vehicle' is also what an annotator applies when the subtype is not
+# determinable. That is a true-but-unspecific label, not a wrong one, which is
+# why it is the safe default for a small or ambiguous box.
+#
+# CAVEAT — the umbrella relation is not expressible in YOLO. Each box carries one
+# class, so an object annotated as both 'Vehicle' and 'SUV' becomes two
+# near-identical boxes with contradictory labels. 43 frames in this dataset do
+# exactly that, affecting 31% of SUV and 20% of Standard Car labels, and the
+# defect is in train and val but NOT test. Run
+# scripts/tools/find_duplicate_boxes.py before drawing conclusions about either
+# class. Any auto-labeling pass must follow the same convention as this dataset —
+# see scripts/evaluation/diagnose_labels.py before merging a new batch.
 
 nc: 7
 names: ['Bus', 'Vehicle', 'Motorcycle', 'SUV', 'Standard Car', 'Truck', 'Van']

@@ -46,6 +46,10 @@ KAGGLE_PREVIEW = KAGGLE / "preview"
 POOL_IMG = REPO / "images" / "kaggle_gpt"
 POOL_LBL = REPO / "labels" / "kaggle_gpt"
 
+# human-reviewed pool from the >=48px crop review (scripts/labeling/label_app.py)
+REVIEW_IMG = REPO / "images" / "kaggle_review"
+REVIEW_LBL = REPO / "labels" / "kaggle_review"
+
 # legacy 11-class Stanford/streetcam runs
 LEGACY_RUNS = REPO / "runs"
 
@@ -58,8 +62,9 @@ with VEHICLE_SCHEMA.open("r", encoding="utf-8") as _f:
 CLASS_NAMES = list(_schema["names"])   # ['Bus', 'Vehicle', 'Motorcycle', ...]
 NC = len(CLASS_NAMES)
 
-# 'Vehicle' is the generic/uncertain bucket; it overlaps SUV / Standard Car / Van
-# by design, so several scripts need its index explicitly.
+# 'Vehicle' is the UMBRELLA class covering every type in the list, so several
+# scripts need its index explicitly. It is not a sibling bucket — never merge
+# SUV / Standard Car into it. See configs/vehicle_7class.yaml.
 VEHICLE_ID = CLASS_NAMES.index("Vehicle")
 
 ID2NAME = dict(enumerate(CLASS_NAMES))
