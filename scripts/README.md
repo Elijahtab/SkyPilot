@@ -33,9 +33,17 @@ Configs live in [`../configs/`](../configs/), weights in [`../weights/`](../weig
 0 Bus   1 Vehicle   2 Motorcycle   3 SUV   4 Standard Car   5 Truck   6 Van
 ```
 
-Class 1 `Vehicle` (renamed from `CAR`) is the **generic** bucket — used when a vehicle is
-present but its subtype isn't confidently determinable. It deliberately overlaps
-SUV / Standard Car / Van, and it's ~78% of the boxes in the base dataset.
+Class 1 `Vehicle` (renamed from `CAR`) is the **umbrella** term: it covers every type —
+Bus, Truck, Motorcycle, Van, Standard Car and SUV alike. It is not a sibling bucket and
+must never be merged with the body-style classes. In practice it is also what gets
+applied when a subtype isn't determinable, which is a *true but unspecific* label rather
+than a wrong one. It's ~78% of the boxes in the base dataset.
+
+> **Known defect:** because `Vehicle` is an umbrella, 37 train frames and 6 val frames
+> label each object **twice** — once `Vehicle`, once its subtype, on the same box. That
+> is 1.8% of all boxes, but it hits **31% of SUV** and **20% of Standard Car** labels,
+> and it is absent from `test` — so the splits disagree about what `Vehicle` means.
+> See `tools/find_duplicate_boxes.py`.
 
 > Existing checkpoints have their class names baked in. `*_vehicle.pt` copies next to each
 > `best.pt`/`last.pt` say `Vehicle`; the originals still say `CAR`. Weights are identical —
@@ -67,6 +75,33 @@ augmented imagery) and falls back to `yolov8m` only for frames with no boxes. It
 writes to the same `train/labels_gpt/` the auto-labeler uses, and skips frames
 already done there, so the two flows interleave and both resume.
 
+**Review existing boxes in bulk** (size-gated grid, browser) — the other labeling flow
+
+`manual_label.py` works one image at a time on the augmented `train` split and can draw
+boxes. This flow classifies boxes that *already exist* on the clean `valid`/`test`
+splits, 60 to a page. Same schema, same 1–7 keys, different output dir.
+
+```powershell
+.\myenv\Scripts\python.exe scripts\labeling\build_crops.py          # tiles + manifest
+.\myenv\Scripts\python.exe scripts\labeling\label_app.py            # http://127.0.0.1:8000
+.\myenv\Scripts\python.exe scripts\labeling\export_labels.py        # -> images/labels/kaggle_review
+.\myenv\Scripts\python.exe scripts\evaluation\diagnose_labels.py images\kaggle_review   # GATE
+```
+
+The gate is the design. Of the 10,655 human-drawn boxes on the 873 clean Kaggle frames,
+the median box long side is **16.5px** and p10 is **6.5px** — nobody can name a vehicle
+subtype at that scale, and a forced guess is indistinguishable downstream from a real
+label. `--min-size 48` keeps the **1,313 boxes (12.3%) that are actually legible**,
+~25–40 min of clicking rather than ~9 hours.
+
+Crops are grouped into pages by v4's predicted class, so each page is "spot the odd one
+out". The prior and the human decision are stored separately, so `export_labels.py`
+prints the agreement rate — near 1.000 means the pass rubber-stamped the model.
+
+> ⚠ `label_app.py` reads the manifest **once at startup**. Restart it after any
+> `build_crops.py` run, or the browser writes the old schema's class ids into the new
+> store — that silently corrupted 53 decisions on 2026-09-08.
+
 **Train / evaluate**
 
 ```powershell
@@ -81,13 +116,22 @@ already done there, so the two flows interleave and both resume.
 `v4` is still the best model (val mAP50-95 **0.430**). Every run that added GPT auto-labels
 regressed, monotonically with the amount added:
 
-| run | init | GPT data | val mAP50-95 | best epoch |
+| run | init | added data | val mAP50-95 | best epoch |
 |---|---|---|---|---|
 | **v4** | v1 best | none | **0.430** | 50 / 55 |
-| v5 | v4 best | 1× | 0.407 | 5 / 25 |
-| v7 | v4 best | 2× | 0.363 | **1** / 21 |
-| v6 | yolov8m | 1× | 0.291 | 39 / 41 |
-| v6_oversampled | yolov8m | 5× | 0.215 | 37 / 40 |
+| v5 | v4 best | GPT 1× | 0.407 | 5 / 25 |
+| v8 | v4 best | **human review 1×** | 0.396 | 22 / 37 |
+| v7 | v4 best | GPT 2× | 0.363 | **1** / 21 |
+| v6 | yolov8m | GPT 1× | 0.291 | 39 / 41 |
+| v6_oversampled | yolov8m | GPT 5× | 0.215 | 37 / 40 |
+
+**v8 (2026-09-08)** tested the hand-reviewed ≥48px pool. It regressed too, but
+differently: it peaked at epoch **22** rather than 1 or 5, because the boxes are
+genuinely good (gate: class-agnostic recall 0.723 / precision 0.783, vs 0.371 / 0.331
+for the GPT pool). The decline is the taxonomy conflict accumulating, not bad geometry.
+Class-agnostic recall on base val fell 0.802 → 0.770 and **every per-class AP50 dropped**,
+so there was no detection-side win to salvage. Full analysis in
+[`../docs/v4-integration-plan.md`](../docs/v4-integration-plan.md).
 
 v5 and v7 peaking at epoch 5 and 1 means training on the mixed pool made validation worse
 from the very first epoch. Measured with `diagnose_labels.py`:
