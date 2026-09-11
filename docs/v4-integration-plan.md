@@ -223,9 +223,13 @@ Conclusion: merging this pool into the detector does not work, for the reason
 predicted in §2, and the reviewed labels should go to a classifier (§3) rather
 than into detector training.
 
-> The v8 run directory was lost to a `git reset --hard` + clean on 2026-09-10.
-> The numbers above are the surviving record; `train_vehicle_v8.py` reproduces
-> the run in ~15 minutes if the weights are needed again.
+> The v8 run directory was lost to a `git reset --hard` + clean on 2026-09-10,
+> then **rebuilt by re-running `train_vehicle_v8.py` the same day**. The rerun
+> reproduced the original **exactly** — same 37 epochs, same best epoch 22, same
+> 0.3959, same per-class AP50, same 4,787 predicted boxes — because ultralytics
+> defaults to `seed=0, deterministic=True`. So the numbers above rest on two
+> independent runs, not one, and the run is reproducible on demand from a
+> committed script. The run directory itself is untracked (104MB of weights).
 
 ---
 
