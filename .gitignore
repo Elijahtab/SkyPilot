@@ -63,3 +63,11 @@ weights/pretrained/yolov8s-seg.pt
 
 # Legacy scratch folder, superseded by weights/ + scripts/
 /YoloModel/
+
+# crop review corpus: tiles are regenerable via scripts/labeling/build_crops.py
+Labeling/review/crops/
+Labeling/review/manifest.json
+# the decision log is IRREPLACEABLE human work; ignore the live db but keep
+# dated backups trackable so a reset/clean can never take it again
+Labeling/review/decisions.sqlite
+!Labeling/review/decisions.backup-*.sqlite
