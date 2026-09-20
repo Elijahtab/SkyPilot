@@ -50,6 +50,12 @@ POOL_LBL = REPO / "labels" / "kaggle_gpt"
 REVIEW_IMG = REPO / "images" / "kaggle_review"
 REVIEW_LBL = REPO / "labels" / "kaggle_review"
 
+# Stage-2 type classifier: ImageFolder crops (scripts/training/build_type_crops.py)
+# and its runs. Kept out of VTD_RUNS so promote_best_model.py, which ranks
+# detection runs by mAP, never sees a classifier run.
+TYPE_CLS  = REPO / "images" / "type_cls"
+TYPE_RUNS = VTD / "runs_cls"
+
 # legacy 11-class Stanford/streetcam runs
 LEGACY_RUNS = REPO / "runs"
 

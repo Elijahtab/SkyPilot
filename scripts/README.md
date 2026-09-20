@@ -15,9 +15,11 @@ Run everything from the repo root with the project venv:
 | Path | What's in it |
 |---|---|
 | [`_paths.py`](_paths.py) | Repo paths + the class schema. Single source of truth. |
+| [`_crops.py`](_crops.py) / [`_color.py`](_color.py) | Crop geometry shared by classifier training and inference; colour rules |
 | [`labeling/`](labeling/) | Fetch the Kaggle dataset, GPT auto-labeling, merge into the pool |
-| [`training/`](training/) | `train_vehicle_v1/v5/v6/v7.py` |
-| [`evaluation/`](evaluation/) | Eval, model comparison, inference, **label-quality gate** |
+| [`training/`](training/) | `train_vehicle_v1/v5..v8.py` detectors; `build_type_crops.py` + `train_type_classifier.py` |
+| [`evaluation/`](evaluation/) | Eval, model comparison, inference, **label-quality gate**, type-classifier eval, colour exploration |
+| [`pipeline/`](pipeline/) | **Two-stage** detect → type → colour, frame index, `search_vehicles.py "red suv"` |
 | [`tools/`](tools/) | Val splits, promoting checkpoints, retagging class names |
 | [`archive/`](archive/) | Dead or superseded scripts. Each carries a banner saying why. Don't run these. |
 
@@ -101,6 +103,26 @@ prints the agreement rate — near 1.000 means the pass rubber-stamped the model
 > ⚠ `label_app.py` reads the manifest **once at startup**. Restart it after any
 > `build_crops.py` run, or the browser writes the old schema's class ids into the new
 > store — that silently corrupted 53 decisions on 2026-09-08.
+
+**Two-stage: type classifier + search** — v4 finds vehicles, a classifier names the type.
+Full design and results in [`../docs/two-stage-pipeline.md`](../docs/two-stage-pipeline.md).
+
+```powershell
+.\myenv\Scripts\python.exe scripts\training\build_type_crops.py          # -> images\type_cls
+.\myenv\Scripts\python.exe scripts\training\train_type_classifier.py     # -> Vehicle_type_detection\runs_cls
+.\myenv\Scripts\python.exe scripts\evaluation\eval_type_classifier.py    # per-class, SUV/Car gate, coverage
+.\myenv\Scripts\python.exe scripts\pipeline\index_frames.py <frames dir> # -> preds\vehicle_index.sqlite
+.\myenv\Scripts\python.exe scripts\pipeline\search_vehicles.py "white van"
+```
+
+`type_cls_v1`: **0.807** top-1 on the Kaggle intersection holdout (majority baseline 0.425),
+SUV vs Standard Car **0.865** head-to-head — separable, keep both. Colour is rules only
+(~0.6 by eye). Known defect: no "not a vehicle" class, so detector false positives
+(traffic signals) get confidently typed.
+
+> ⚠ The base **`test` split is 108 byte-identical copies of `train` images**, and base
+> `val` shares consecutive video frames with `train`. Don't quote a test-set number;
+> read val numbers as optimistic.
 
 **Train / evaluate**
 
