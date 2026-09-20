@@ -1,0 +1,19 @@
+# Line-ending policy. Windows workstations, Linux dev containers and the Jetson
+# must check out the same bytes: shell scripts and ROS entry points fail on the
+# board if they arrive as CRLF. Added with the ROS 2 Humble workspace.
+* text=auto eol=lf
+
+# Windows-only helpers keep CRLF.
+*.bat  text eol=crlf
+*.ps1  text eol=crlf
+
+# Binaries Git must never normalise.
+*.pt      binary
+*.pth     binary
+*.onnx    binary
+*.engine  binary
+*.sqlite  binary
+*.png     binary
+*.jpg     binary
+*.jpeg    binary
+*.mp4     binary

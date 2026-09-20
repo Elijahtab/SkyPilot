@@ -1,0 +1,47 @@
+# Jetson image: aarch64, JetPack 6 / CUDA, for the Orin Nano.
+#
+# ROS goes ON TOP of the Ultralytics JetPack 6 container rather than the other
+# way round. That image already carries the validated aarch64 CUDA build of
+# torch, torchvision and onnxruntime-gpu -- which is precisely why this project
+# is on Humble and not Jazzy. Rebuilding torch for aarch64 is the expensive,
+# fragile part; installing ROS on an Ubuntu 22.04 base is routine.
+#
+# Build context is the repo root.
+ARG BASE=ultralytics/ultralytics:latest-jetson-jetpack6
+FROM ${BASE}
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl gnupg lsb-release software-properties-common \
+    && add-apt-repository -y universe \
+    && curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
+         -o /usr/share/keyrings/ros-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" \
+         > /etc/apt/sources.list.d/ros2.list \
+    && apt-get update && apt-get install -y --no-install-recommends \
+        ros-humble-ros-base \
+        ros-humble-cv-bridge \
+        ros-humble-image-transport \
+        ros-humble-rosbag2-storage-mcap \
+        python3-colcon-common-extensions \
+    && rm -rf /var/lib/apt/lists/*
+
+# --no-deps is load-bearing. ultralytics pins torch, and a plain install will
+# happily replace the JetPack CUDA build with a generic aarch64 wheel that
+# cannot see the GPU. Same trap that bites LeRobot installs on Orin.
+COPY docker/requirements-ros.txt /tmp/requirements-ros.txt
+RUN pip3 install --no-cache-dir --no-deps -r /tmp/requirements-ros.txt
+
+# Deliberately NOT asserting torch.cuda.is_available() at build time: the
+# nvidia runtime is usually inactive during `docker build` (unless
+# default-runtime is set to nvidia in /etc/docker/daemon.json), so it reports
+# False even for a healthy image. Check at run time, where it is attached:
+#   docker compose -f docker/compose.yaml run --rm vision \
+#       python3 -c "import torch; print(torch.cuda.is_available())"
+
+ENV SKYPILOT_REPO=/workspace
+WORKDIR /workspace
+
+RUN echo 'source /opt/ros/humble/setup.bash' >> /root/.bashrc \
+ && echo '[ -f /workspace/ros2_ws/install/setup.bash ] && source /workspace/ros2_ws/install/setup.bash' >> /root/.bashrc

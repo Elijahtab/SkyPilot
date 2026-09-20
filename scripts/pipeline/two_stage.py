@@ -62,10 +62,23 @@ class TwoStagePipeline:
         self.versions = f"det={Path(detector).parents[1].name} cls={Path(classifier).parents[1].name}"
 
     def __call__(self, frame_path):
-        """-> (list of detection dicts, (width, height))"""
+        """A path on disk -> (list of detection dicts, (width, height))."""
         # exif_transpose: cv2.imread, which the detector was validated through,
         # applies EXIF rotation; PIL does not unless asked
         im = ImageOps.exif_transpose(Image.open(frame_path)).convert("RGB")
+        return self.from_image(im)
+
+    def from_array(self, rgb):
+        """An HxWx3 RGB uint8 array -> (dets, (width, height)).
+
+        The entry point for live frames, e.g. the ROS 2 detector node. No EXIF
+        handling here: a frame off a camera topic carries no EXIF orientation,
+        and applying it would be wrong.
+        """
+        return self.from_image(Image.fromarray(rgb))
+
+    def from_image(self, im):
+        """A PIL RGB Image -> (dets, (width, height)). The shared body."""
         rgb = np.asarray(im)
         r = self.det.predict(im, conf=self.det_conf, imgsz=DET_IMGSZ,
                              agnostic_nms=True, verbose=False, device=self.device)[0]

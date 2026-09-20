@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>skypilot_vision</name>
+  <version>0.1.0</version>
+  <description>
+    ROS 2 nodes for the SkyPilot two-stage vehicle pipeline: detect, type,
+    colour. Wraps scripts/pipeline/two_stage.py rather than reimplementing it.
+  </description>
+  <maintainer email="lukeawild@outlook.com">Lucas Marshall-Wildgrube</maintainer>
+  <license>Apache-2.0</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>cv_bridge</exec_depend>
+  <exec_depend>skypilot_msgs</exec_depend>
+
+  <!-- torch and ultralytics are NOT rosdep keys. They come from the image,
+       pinned in docker/requirements-ros.txt, because the wheel that works is
+       platform-specific: CUDA on the Jetson, CPU or CUDA on a workstation. -->
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

@@ -1,0 +1,39 @@
+# Jetson bring-up. From the repo root:
+#   docker compose -f docker/compose.yaml up vision      # build + launch
+#   docker compose -f docker/compose.yaml run --rm shell # prompt instead
+#
+# network_mode: host and ipc: host are not optional for ROS 2. DDS discovery
+# uses multicast and shared-memory transport; a bridged network silently
+# breaks both, and nodes simply never see each other.
+
+x-jetson: &jetson
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile.jetson
+  image: skypilot/vision:humble-jp6
+  runtime: nvidia
+  network_mode: host
+  ipc: host
+  volumes:
+    # The repo is bind-mounted, not baked in, so editing a node on the host
+    # and restarting is enough -- no rebuild to change Python.
+    - ..:/workspace:rw
+  environment:
+    SKYPILOT_REPO: /workspace
+    # Every machine on the same ROS graph must share this. Change it to keep
+    # two people testing on one network from finding each other's nodes.
+    ROS_DOMAIN_ID: "${ROS_DOMAIN_ID:-0}"
+  working_dir: /workspace/ros2_ws
+
+services:
+  vision:
+    <<: *jetson
+    command: >
+      bash -c "source /opt/ros/humble/setup.bash &&
+               colcon build --symlink-install &&
+               source install/setup.bash &&
+               ros2 launch skypilot_vision vision.launch.py"
+
+  shell:
+    <<: *jetson
+    command: bash

@@ -1,0 +1,25 @@
+{
+  "name": "SkyPilot ROS 2 Humble",
+  "build": {
+    "dockerfile": "../docker/Dockerfile.dev",
+    "context": ".."
+  },
+  "workspaceFolder": "/workspace",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
+  "containerEnv": {
+    "SKYPILOT_REPO": "/workspace"
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-iot.vscode-ros",
+        "redhat.vscode-yaml"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/bin/python3"
+      }
+    }
+  },
+  "postCreateCommand": "bash -c 'source /opt/ros/humble/setup.bash && cd /workspace/ros2_ws && colcon build --symlink-install'"
+}
