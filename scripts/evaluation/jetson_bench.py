@@ -42,10 +42,24 @@ IMG_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
 
 
 # -- sensors ----------------------------------------------------------
+# The INA3221 rails moved between L4T releases: JetPack 5 exposes them under the
+# ina3221 driver, JetPack 6/7 (kernel 6.8) may use ina3221x or expose them only
+# through the generic hwmon tree. Try each -- the curr*_input requirement below
+# filters out thermal and voltage-only zones that the generic glob also matches.
+RAIL_GLOBS = (
+    "/sys/bus/i2c/drivers/ina3221/*/hwmon/hwmon*/in*_label",
+    "/sys/bus/i2c/drivers/ina3221x/*/hwmon/hwmon*/in*_label",
+    "/sys/class/hwmon/hwmon*/in*_label",
+)
+
+
 def find_power_rails():
     """{rail name: (voltage file mV, current file mA)} from the INA3221 hwmon driver."""
     rails = {}
-    for label in glob.glob("/sys/bus/i2c/drivers/ina3221/*/hwmon/hwmon*/in*_label"):
+    labels = []
+    for pattern in RAIL_GLOBS:
+        labels.extend(glob.glob(pattern))
+    for label in labels:
         try:
             name = Path(label).read_text().strip()
         except OSError:
@@ -187,7 +201,22 @@ def main():
             torch.cuda.synchronize()
 
     model = YOLO(str(model_path))
-    kw = dict(imgsz=args.imgsz, conf=args.conf, half=args.half, device=args.device, verbose=False)
+    # Only send a precision kwarg when FP16 is actually asked for. ultralytics
+    # 8.4 warns once per predict() call on `half` even when it is False (255
+    # warnings in the JetPack 5 baseline log), and newer versions renamed it to
+    # `quantize` -- so passing half=False both spams the log and risks a
+    # TypeError on the newer ultralytics that JetPack 7.2 pulls in.
+    kw = dict(imgsz=args.imgsz, conf=args.conf, device=args.device, verbose=False)
+    if args.half:
+        try:
+            from ultralytics.cfg import DEFAULT_CFG_DICT
+            use_quantize = "quantize" in DEFAULT_CFG_DICT
+        except Exception:
+            use_quantize = False
+        if use_quantize:
+            kw["quantize"] = "fp16"
+        else:
+            kw["half"] = True
 
     # 2. warm-up
     print("warm-up: %d images ..." % min(args.warmup, len(imgs)))
@@ -217,9 +246,10 @@ def main():
 
             read_ms.append((t1 - t0) * 1000)
             model_ms.append((t2 - t1) * 1000)
-            pre.append(r.speed["preprocess"])
-            inf.append(r.speed["inference"])
-            post.append(r.speed["postprocess"])
+            speed = getattr(r, "speed", None) or {}
+            pre.append(speed.get("preprocess", 0.0))
+            inf.append(speed.get("inference", 0.0))
+            post.append(speed.get("postprocess", 0.0))
             dets.append(len(r.boxes))
             shapes.add(frame.shape[:2])
             if n == 0:
