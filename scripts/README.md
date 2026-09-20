@@ -133,6 +133,15 @@ SUV vs Standard Car **0.865** head-to-head — separable, keep both. Colour is r
 .\myenv\Scripts\python.exe scripts\tools\promote_best_model.py
 ```
 
+**Benchmark on the Jetson** — `evaluation/jetson_bench.py` is standalone (no repo imports,
+Python 3.8), so copy it to the board next to the `.pt` and run it inside the ultralytics
+container. Reports batch-1 latency/FPS, board power from the INA3221 sensors (idle vs running,
+joules per image) and temperature, and writes a JSON report.
+
+```bash
+python /work/jetson_bench.py /work/<image folder> --model /work/best_vehicle.pt   # add --half for FP16
+```
+
 ## Read this before training on auto-labeled data
 
 `v4` is still the best model (val mAP50-95 **0.430**). Every run that added GPT auto-labels
